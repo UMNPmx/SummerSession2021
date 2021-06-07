@@ -2,7 +2,7 @@
 Summer 2021 workshops for pharmacometrics related topics. Content put on by ECP grad students.
 
 **When**: Fridays from June 4th to August 27th (7 sessions)<br>
-**Where**: Zoom (contact Shen at `cheng423@umn.edu` (phone: 7348460741)for link)<br>
+**Where**: Zoom (contact Shen at `cheng423@umn.edu` (phone: '+1 7348460741') for link)<br>
 **Time**: 2 hours each sessions, one sesion every two weeks<br>
 **Format**:
 - Sessions will be moderated by someone with decent experience on the topic.
