@@ -18,6 +18,6 @@ Summer 2021 workshops for pharmacometrics related topics. Content put on by ECP 
 |June 18|Shen|mrgsolve - I <li>Simulate dataset</li>|
 |July 2|Ya-Feng Wen/Shen|mrgsolve - II <li>Format dataset into NONMEM format</li>|
 |July 16|Mutaz |NONMEM - Model Building I|
-|July 30| |NONMEM - Model Building II|
-|August 13| Mutaz/Shen |NONMEM - Model Evaluation I <li>Diagnostics</li>| 
+|July 30| |NONMEM - Model Building II|<li>covariates selections (scm...)</li>
+|August 13| Mutaz/Shen |NONMEM - Model Evaluation I <li>Diagnostics</li><li>NPDE</li><li>VPC</li><li>BS/SIR</li>| 
 |August 27| Mutaz |NONMEM - Model Evaluation II|
