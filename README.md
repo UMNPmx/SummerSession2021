@@ -10,6 +10,8 @@ Summer 2021 workshops for pharmacometrics related topics. Content put on by ECP 
 	- A cheat-sheet on the day’s topic
 	- An R-markdown file with incomplete code which attendees can code-along during the demonstration (like the one Kyle provided for the mrgsolve workshop). The moderator can also include a homework type exercise at the end, if they choose.
 	- A dataset if needed. An open-source data set like “mtcars”
+- Session recordings: Charul Avachat (`avach005@umn.edu`)
+- Slack maintainence: Xintian Lyu (`lyu00028@umn.edu`)
 
 ## Agenda
 |DATE|MODERATOR|TOPICS|
