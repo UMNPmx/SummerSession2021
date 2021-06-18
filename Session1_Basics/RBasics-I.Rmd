@@ -1,19 +1,21 @@
 ---
 title: "Session 1 - R Basics"
-author: "Ya-Feng Wen"
+author: 
+- "Ya-Feng Wen"
+- "Fan Wang"
 date: "`r Sys.Date()`"
-output: 
+output:
+  pdf_document:
+    toc: true
+    toc_depth: 1
   html_document:
     toc: true
     toc_float: true
     code_folding: hide
-  pdf_document:
-    toc: true
-    toc_depth: 1
-
 ---
 ```{r global_options, include=FALSE}
-knitr::opts_chunk$set(warning=FALSE, message=FALSE, results=FALSE)
+knitr::opts_chunk$set(warning=FALSE, message=FALSE, results=FALSE,
+                      fig.width=6, fig.height=4)
 ```
 
 # Objectives
@@ -21,10 +23,12 @@ knitr::opts_chunk$set(warning=FALSE, message=FALSE, results=FALSE)
   + Git and version control
   + Command Line
 * RStudio and R markdown
+* lubridate
 * Loops/Functions
 * ggplot2
 * dplyr
-* lubridate
+
+\newpage
 
 # Git and version control
 * Install Git
@@ -121,24 +125,56 @@ git pull
 1. Create the following folders using terminal: data, rds, figs
 2. Create relevant `.R` and `.Rmd` files: download-data.R, wrangle-data.R, analysis.R, report.Rmd
 
+\newpage 
+
 # RStudio and R markdown
+We won't be covering this material this year, but you can see more content from last year, [UMN Pharmacometrics Workshop 2020 Basics in R - I](https://github.com/UMNPmx/SummerSession2020) or refer to Reference 4-6. 
 
+# Get things ready for the exercise! 
+```{r}
+# load the packages will be used in this session
+library(tidyverse)
+library(lubridate)
+```
 
-# Loops/Functions
+## Practice 
 
-## Practice
+1. Read in data from data folder (dataSession1.csv)
+2. Check the type of each column. Does the data type make sense? If not, convert to the correct type of object.
 
-# ggplot2
+```{r}
+# load the data set will be used in the session
 
+# if you know the column type ahead of time, 
+# you can convert column to the right type
+data <- read_csv("../data/dataSession1.csv", 
+                 col_types = cols(DATE = col_date(format = "%m/%d/%Y"),
+                                  TIME = col_time(format = "%H:%M"),
+                                  STUDY = col_factor(levels = c("1", "2", "3")), 
+                                  SEXF = col_factor(levels = c("0", "1"))))
 
-## Practice
+# check the data type to see if this is what you expected
+str(data)
+```
+
+```{r}
+# if you don't know, if can convert to the correct type later
+dataRaw <- read_csv("../data/dataSession1.csv")
+
+# convert data to the right type
+dataRightType <- dataRaw %>% 
+  mutate(STUDY = factor(STUDY),
+         SEXF = factor(SEXF))
+
+str(dataRightType)
+```
 
 # dplyr
 * `filter()`: select rows
 * `select()`: select columns
 * `arrange()`: reorder rows
 * `mutate()`: create new variables based on existing variables
-* `summarize()`: summary values within a columns
+* `summarise()`: summary values within a columns
   + `group_by()`: use with the main 5 functions
 
 ## Syntax
@@ -146,29 +182,228 @@ git pull
 2. The subsequent arugments: what to do with the data frame, using the variable names without quotes
 3. The result: a new data frame
 
-## Practice
-
-
-
 # lubridate
+* Parse date-times: `ymd()`, `ymd_hms()`, `dmy()`, `dmy_hms()`, `mdy()`
+* Get and set date-times: `year()`, `month()`, `mday()`, `hour()`, `minute()`, `second()` 
 * `today()` 
 * `now()`
-* `ymd_hms()`
-* `make_date()`
 
 ## Practice
 
+1. Convert DATE in dataRaw to date object
+
+```{r}
+dataRaw %>% 
+  mutate(DATE = mdy(DATE))
+```
+
+2. Calculate the actual time since first dose (ATSFD)
+
+Hint: 
+
+  - Combine date and time into a new column using `ymd_hms()` and `paste()`
+  - Create a new column for the first datetime per subject
+  - Calculate the datetime difference using `difftime()`, then turn into duration using `duration()`, then calculate the hours from duration using `dhours()`
+
+```{r}
+# combine date and time into a new column
+data <- data %>% 
+  mutate(DATETIME = ymd_hms(paste(data$DATE, data$TIME))) %>% 
+  relocate(DATETIME, .after = TIME)
+
+# calculate the time difference
+data <- data %>% 
+  group_by(ID) %>% 
+  mutate(firstDateTime = min(DATETIME)) %>% 
+  mutate(ATSFD = as.duration(difftime(DATETIME,firstDateTime))/dhours(1)) %>%
+  select(-firstDateTime) %>% 
+  ungroup() %>% 
+  relocate(ATSFD, .after = DATETIME)
+```
+
+\newpage 
+
+# Loops/Functions
+
+
+## Practice
+1. Create a function to calculate creatinine clearance using [the Cockcroft-Gault Equation](https://www.mdcalc.com/creatinine-clearance-cockcroft-gault-equation#evidence)
+2. Calculate creatinine clearance for all the subject in the dataset and save as a new column called CRCL
+
+\newpage
+
+# ggplot2
+
+The [ggplot2 official website](https://ggplot2.tidyverse.org/) contains a great deal of information and resources worth exploring! (Many content presented here is based on previous material prepared by Ashwin!)
+
+## The Grammar of graphics
+1. Data: very important!
+2. Mapping: aesthetic and facet mapping, allow dataset to be understood by the graphic system
+3. Statistics: transform input variables to displayed values
+4. Scales: consider type of variable (categorical->color, numeric->position)
+5. Geometries: plot type, use cheatsheet as the guide 
+6. Facets: small multiples
+7. Coordinates
+8. Theme
+
+## Practice
+1. Plot the individual concentration-time curve
+    - Every subject on the same graph
+    - Each subject on a different graph
+    - Plot subjects whose weight is above and below the mean weight with 2 different graphs
+    - add a trend line using `geom_smooth()` with the default (loess method) and with standard deviation (cab also use `geom_errorbar()`)
+    - Plot mean concentration by gender
+
+
+- Every subject on the same graph
+```{r}
+# doesn't look right...
+ggplot(data, aes(DATETIME, CP))+
+  geom_point()+
+  geom_line()
+```
+
+```{r}
+# better, but subjects start at different time
+ggplot(data, aes(DATETIME, CP, group = ID))+
+  geom_point()+
+  geom_line()
+```
+
+```{r}
+# looks something acceptable
+ggplot(data, aes(ATSFD, CP, group = ID)) + 
+  geom_line() + 
+  geom_point()
+
+# make it prettier
+ggplot(data, aes(ATSFD, CP, group = ID)) + 
+  geom_line(alpha=0.2) + # alpha for  transparency  
+  geom_point(alpha=0.2)
+
+# maybe try some color or shape? 
+# probably not a good idea
+ggplot(data, aes(ATSFD, CP, color = factor(ID))) + 
+  geom_line(alpha=0.2) + 
+  geom_point(alpha=0.2)
+
+ggplot(data, aes(ATSFD, CP, shape = factor(ID))) + 
+  geom_line(alpha=0.2) +
+  geom_point(alpha=0.2)
+
+# the axis is not informative to many people
+ggplot(data, aes(ATSFD, CP, group = ID)) + 
+  geom_line(alpha=0.2) + 
+  geom_point(alpha=0.2) +
+  labs(title = "Concentration time curve",
+       subtitle = "100 subjects",
+       x = "Time (hour)",
+       y = "Concentration (mg/L)")
+```
+
+```{r}
+# we can save this as a base plot then do further manipulation
+concTime <- ggplot(data, aes(ATSFD, CP, group = ID)) + 
+  geom_line(alpha=0.2) +
+  geom_point(alpha=0.2) +
+  labs(title = "Concentration time curve", # format axis labels with `labs()`
+       subtitle = "100 subjects",
+       x = "Time (hour)",
+       y = "Concentration (mg/L)")
+```
+
+```{r}
+# log scale
+concTime + scale_y_log10()
+
+# many journal requires white background 
+concTime + scale_y_log10() + theme_bw()
+```
+
+
+- Each subject on a different graph
+```{r, cache=TRUE}
+# plot each individuals
+concTime + facet_wrap(~ID) # Cannot see anything
+
+# potential solution: ggforce package
+numPages = 4
+
+for (i in seq_len(numPages)) {
+  print(concTime + 
+          ggforce::facet_wrap_paginate(~ ID, ncol = 5, nrow = 5, page = i))
+}
+```
+
+- Plot subjects whose weight is above and below the mean weight with 2 different graphs
+
+```{r}
+concTime + facet_grid(~WT < mean(WT))
+```
+
+- Add a trend line using `geom_smooth()` with the default (loess method)
+```{r}
+ggplot(data, aes(ATSFD, CP)) +
+  geom_line(aes(group = ID),alpha = 0.2) + 
+  # group cannot be set within ggplot() since geom_smooth does not 
+  # need the grouping aesthetic
+  geom_point(alpha = 0.2)+ 
+  geom_smooth(se = TRUE, method = "loess")+ # other methods check ?geom_smooth
+  theme_bw()
+```
+
+-  Add a trend line using `geom_ribbon` and `geom_errorbar()`
+
+```{r}
+data %>%
+  group_by(ATSFD) %>% 
+  summarise(AVGCON = mean(CP),
+            SDCON = sd(CP)) %>% 
+  ggplot(aes(ATSFD, AVGCON))+
+  geom_point()+
+  geom_line()+
+  geom_ribbon(aes(ymin = AVGCON - SDCON, ymax = AVGCON + SDCON), 
+              alpha = 0.2)+
+  theme_bw()
+
+data %>%
+  group_by(ATSFD) %>% 
+  summarise(AVGCON = mean(CP),
+            SDCON = sd(CP)) %>% 
+  ggplot(aes(ATSFD, AVGCON))+
+  geom_point()+
+  geom_line()+
+  geom_errorbar(aes(ymin = AVGCON - SDCON, ymax = AVGCON + SDCON), 
+                linetype = 1, 
+                size = 0.5)+
+  theme_bw()  
+```
+
+
+- Plot mean concentration by gender
+```{r}
+# multiple trend lines
+ggplot(data, aes(ATSFD, CP))+
+  geom_smooth(aes(color=SEXF), se=TRUE)+
+  theme_bw()
+```
+
+
+
+\newpage 
 
 # Resources 
 1. R for Data Science by Hadley Wickham and Garrett Grolemund,  online at <https://r4ds.had.co.nz/>
 2. Introduction to Data Science by Rafael A. Irizarry, online at <https://rafalab.github.io/dsbook/>
 3. R cheetsheets <https://rstudio.com/resources/cheatsheets/>
-  - Data Transformation Cheatsheet
-  - Dates and Times Cheatsheet
-  - R Markdown Cheatsheet
-  - Data Visualization Cheatsheet
+    - Data Transformation Cheatsheet
+    - Dates and Times Cheatsheet
+    - R Markdown Cheatsheet
+    - Data Visualization Cheatsheet
 4. R Markdown: The Definitive Guide by Yihui Xie, J. J. Allaire, Garrett Grolemund, online at <https://bookdown.org/yihui/rmarkdown/>
-5. R Packages by Hadley Wickham and Jenny Bryan, online at <https://r-pkgs.org/>
+5. RMarkdown for Scientists by Nicholas Tierney, online at <https://rmd4sci.njtierney.com/>
+6. bookdown: Authoring Books and Technical Documents with R Markdown by Yihui Xie, online at <https://bookdown.org/yihui/bookdown/>
+7. R Packages by Hadley Wickham and Jenny Bryan, online at <https://r-pkgs.org/>
 
 
 # Session Info
