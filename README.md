@@ -16,7 +16,7 @@ Summer 2021 workshops for pharmacometrics related topics. Content put on by ECP 
 ## Agenda
 |DATE|MODERATOR|TOPICS|
 |--|--|--|
-|June 18|Ya-Feng/Fan|R Basics - I <li>Project Management</li> <li>Loops/Functions</li>  <li>dplyr</li> <li>ggplot2</li>|
+|June 18|Ya-Feng/Fan|R Basics - I <li>Project Management</li> <li>Functions</li>  <li>dplyr</li> <li>ggplot2</li>|
 |July 2|Shen/Ya-Feng|Simulation - I <li>MrgSolve</li><li>Simulate dataset</li>|
 |July 16|Ya-Feng Wen/Shen|Simulation - II <li>Format dataset into NONMEM format</li>|
 |July 30|Mutaz/Jessica |NONMEM - Model Building I|

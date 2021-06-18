@@ -5,13 +5,13 @@ author:
 - "Fan Wang"
 date: "`r Sys.Date()`"
 output:
-  pdf_document:
-    toc: true
-    toc_depth: 1
   html_document:
     toc: true
     toc_float: true
     code_folding: hide
+  pdf_document:
+    toc: true
+    toc_depth: 1
 ---
 ```{r global_options, include=FALSE}
 knitr::opts_chunk$set(warning=FALSE, message=FALSE, results=FALSE,
@@ -149,7 +149,7 @@ library(lubridate)
 # you can convert column to the right type
 data <- read_csv("../data/dataSession1.csv", 
                  col_types = cols(DATE = col_date(format = "%m/%d/%Y"),
-                                  TIME = col_time(format = "%H:%M"),
+                                  TIME = col_time(format = "%H:%M:%S"),
                                   STUDY = col_factor(levels = c("1", "2", "3")), 
                                   SEXF = col_factor(levels = c("0", "1"))))
 
@@ -220,15 +220,6 @@ data <- data %>%
   ungroup() %>% 
   relocate(ATSFD, .after = DATETIME)
 ```
-
-\newpage 
-
-# Loops/Functions
-
-
-## Practice
-1. Create a function to calculate creatinine clearance using [the Cockcroft-Gault Equation](https://www.mdcalc.com/creatinine-clearance-cockcroft-gault-equation#evidence)
-2. Calculate creatinine clearance for all the subject in the dataset and save as a new column called CRCL
 
 \newpage
 
@@ -387,8 +378,97 @@ ggplot(data, aes(ATSFD, CP))+
   geom_smooth(aes(color=SEXF), se=TRUE)+
   theme_bw()
 ```
+\newpage 
+
+# Functions
+## Practice
+1. Create a function to calculate creatinine clearance using [the Cockcroft-Gault Equation](https://www.mdcalc.com/creatinine-clearance-cockcroft-gault-equation#evidence)
+2. Calculate creatinine clearance for all the subject in the dataset and save as a new column called CRCL
+
+```{r}
+# calculate different body weights: IBW and adjust BW
+# return in kilograms
+weight_cal <- function(weight_lb, height_in, sex, type=c("IBW","AjBW")) {
+  if (!sex %in% c(0,1) ) {
+    stop("Specify sex with only 0 (male) or 1 (female)")
+  }
+  
+   if (!type %in% c("IBW","AjBW") ) {
+    stop("Specify type with only 'IBW' or 'AjBW'")
+  }
+  
+  if (sex == 0 & height_in >= 60) {
+    IBW = 50 + 2.3*(height_in-60)
+    AjBW = IBW + 0.4*(weight_lb/2.2-IBW)
+    AjBW = ifelse(AjBW < IBW, weight_lb/2.2, AjBW) 
+    # if ABW is less than IBW (underweight), ABW must set to Actual BW
+  } else if (sex == 1 & height_in >= 60) {
+    IBW = 45.5 + 2.3*(height_in-60)
+    AjBW = IBW + 0.4*(weight_lb/2.2-IBW)
+    AjBW = ifelse(AjBW < IBW, weight_lb/2.2, AjBW)
+  } else if (sex == 0 & height_in < 60) {
+    IBW = 50 - (50/60*(60-height_in))
+    AjBW = IBW + 0.4*(weight_lb/2.2-IBW)
+    AjBW = ifelse(AjBW < IBW, weight_lb/2.2, AjBW)
+    # Using baseline method for those shorter than 60 inches
+  } else if (sex == 1 & height_in < 60) {
+    IBW = 45.5 + (45.5/60*(60-height_in))
+    AjBW = IBW + 0.4*(weight_lb/2.2-IBW)
+    AjBW = ifelse(AjBW < IBW, weight_lb/2.2, AjBW)
+  }
+  
+  if (type == "IBW") {
+    return(round(IBW,1))
+  } else if (type == "AjBW") {
+    return(round(AjBW,1))
+  } else {
+    stop("Incorrect type selected. Use ony 'IBW' or 'AjBW' for type.")
+  }
+}
+
+```
 
 
+```{r, eval=FALSE}
+# test the function thoroughly 
+weight_cal(weight_lb = 80*2.2, height_in = 180/2.54, sex = 0, type = "IBW")
+weight_cal(weight_lb = 80*2.2, height_in = 180/2.54, sex = 0, type = "AjBW")
+weight_cal(weight_lb = 80*2.2, height_in = 180/2.54, sex = 2, type = "IBW")
+weight_cal(weight_lb = 80*2.2, height_in = 180/2.54, sex = 2, type = "IBw")
+weight_cal(weight_lb = 80*2.2, height_in = 180/2.54, sex = 1, type = "IBw")
+```
+
+
+```{r}
+# calculate creatinine clearance and eGFR
+# Cockcroft and Gault formula
+crcl_cg <- function(scr, age, weight_kg, sex, type=c("CG", "CKD-EPI", "MDRD")) {
+  if (sex == 0) {
+    crcl_cg = (140-age)*(weight_kg)/(72*scr)
+  } else if (sex == 1) {
+    crcl_cg = (140-age)*(weight_kg)/(72*scr)*0.85
+  } 
+  return(round(crcl_cg,1))
+}
+
+crcl_cg <- function(scr, age, weight_kg, sex) {
+  if (sex == 0) {
+    crcl_cg = (140-age)*(weight_kg)/(72*scr)
+  } else if (sex == 1) {
+    crcl_cg = (140-age)*(weight_kg)/(72*scr)*0.85
+  } 
+  return(round(crcl_cg,1))
+}
+```
+
+
+```{r}
+# calculate IBW, ABW, and CrCAL
+data %>% 
+  mutate(IBW = weight_cal(weight_lb = WT*2.2, height_in = HT/2.54, sex = SEXF, type = "IBW"),
+         ABW = weight_cal(weight_lb = WT*2.2, height_in = HT/2.54, sex = SEXF, type = "AjBW"),
+         CRCLCG = crcl_cg(scr=SCR, age=AGE, weight_kg = WT, sex=SEXF))
+```
 
 \newpage 
 
