@@ -1,0 +1,414 @@
+---
+title: "dataset simulations"
+author: "Shen Cheng"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Descriptions
+
+* In this section, we will illustrate how to simulate a population dataset using `mrgsolve` from a PK-PD model
+* Scienrio: 
+    - A hypothetical Drug A is administered orally
+    - Drug A can inhibit the synthesis of hypothetical soluble protein B 
+    - Following administration, drug A exhibits a delayed absorption and mono-exponential elimination
+    - Concentrations of drug A and protein B are measurable in plasma
+    - Genotype C can impact the elimination of drug A
+        - intermediate metabolizors (IM) exhibit 50% reduction in drug A clearance compared with extensive metabolizors (EM)
+        - poor metabolizors (PM) exhibit 80% reduction in drug A clearance compared with extensive metabolizors (EM)
+    - Drug A also exhibits a age-dependent decrease in clearance
+    - Gender can impact the synthesis rate of protein B
+* mrgsolve model file is shown below
+   
+```{r model file}
+pkpd_model <- '
+
+[set] delta = 0.01, end = 50 
+
+[PROB]
+ - author: Shen Cheng
+ - date: `r Sys.Date()`
+ - comments: this is a demonstration
+ - PK: one compartment model + transit compartment absportion + first order elimination
+ - PD: indirect response model with drug inhibiting `kin`
+ - allometric scaling on flow and volume based parameters
+ - random effects added on `ktr`, `cl`, `vc`, `ic50` and `kin` as exponential distributions
+ - proportional error model
+ - model covariates: geno ~ cl, age ~ cl and sex ~ kin
+
+[PARAM] @annotated
+tvcl    :  1   : typical value of clearance (L/hr)
+tvvc    :  20  : typical value of central volume of distribution (L)
+tvktr   :  1   : typical value of transit rate (/hr) 
+tvic50  :  5   : typical value of concentration which introduce 50% of inhibitory effects (mg/L)
+tvkin   :  50  : synthetic rate (/hr)
+tvkout  :  5   : degradation rate (/hr)
+geno2cl :  0.5 : genotype 2 effect on cl
+geno3cl :  0.2 : genotype 3 effect on cl
+agecl   :  -0.3: age effect on cl
+sexkin  :  0.8 : sex effect on kin
+geno    :  1   : reference genotype (extensive metabolizor: 1/intermediate metabolizor: 2/poor metabolizor: 3)
+age     :  50  : reference age (years)
+sex     :  0   : reference gender (female: 0/male: 1)
+wt      :  70  : refernce wt (kg)
+
+[CMT]  @annotated 
+depot  : depot compartment (mass)
+trans1 : transit compartment 1 (mass)
+trans2 : transit compartment 2 (mass)
+trans3 : transit compartment 3 (mass)
+cent   : central compartment (mass)
+resp   : response compartment (conc)
+
+[MAIN]
+double cl = tvcl*pow(wt/70, 0.75)*pow(age/50, agecl)*exp(ETA(1));
+  if (geno == 2) cl = tvcl*pow(wt/70, 0.75)*pow(age/50, agecl)*exp(ETA(1))*geno2cl;
+  if (geno == 3) cl = tvcl*pow(wt/70, 0.75)*pow(age/50, agecl)*exp(ETA(1))*geno3cl;
+double vc = tvvc*pow(wt/70,1)*exp(ETA(2)); 
+double ktr = tvktr*exp(ETA(3));
+double ic50 = tvic50*exp(ETA(4));
+double kin = tvkin*pow(sexkin, sex)*exp(ETA(5));
+double kout = tvkout; 
+
+resp_0 = kin/kout; //initialize the response compartment at steady state
+
+[OMEGA] @annotated @correlation
+iivcl : 0.1 : interindividual variability (iiv) on cl
+iivvc : 0.5 0.2 : iiv on vc (50% correlation between cl and vc)
+
+[OMEGA] @annotated
+iivktr  : 0.1 : iiv on ktr
+iivic50 : 0.3 : iiv on ic50
+iivkin  : 0.2 : iiv on kin
+
+[SIGMA] @annotated
+ruvpk   : 0.01 : ruv on pk obs
+ruvpd   : 0.04 : ruv on pd obs
+
+$ODE
+//PK 
+double cp = cent/vc; 
+
+dxdt_depot = -ktr*depot;
+dxdt_trans1 = ktr*(depot - trans1);
+dxdt_trans2 = ktr*(trans1 - trans2);
+dxdt_trans3 = ktr*(trans2 - trans3);
+dxdt_cent  = ktr*trans3 - cl*cp;
+
+//PD
+double inh = cp /(cp + ic50);
+double res = resp;
+
+dxdt_resp = kin*(1-inh) - kout*resp; 
+
+[TABLE]
+double pkobs = cp*(1 + EPS(1));
+double pdobs = resp*(1 + EPS(2)); 
+
+$CAPTURE
+cp, res, pkobs, pdobs
+
+'
+```
+
+# Study design
+* Single dose study
+* 100 subjects were recruited following the informed consent. 
+* One pre-dose blood sample was collected from each subject to assess the baseline concentration of protein B
+* Drug A is administered as either 50, 100 or 200 mg tablet, 2 hours following the collection of first blood sample
+* Blood samples were then collected at 0.5, 1, 2, 4, 8, 12, 24, 48 hours post-dose
+* Plasma concentrations of drug A and protein B were meausred in samples collected post-dose
+
+# Simulations
+
+```{r call library, message=FALSE}
+library(mrgsolve)
+library(tidyverse)
+library(ggpubr)
+library(truncnorm) #functionality related to truncated nomral distribution
+library(reshape2)  #melt/dcast
+library(lubridate) #date calculations
+```
+
+
+```{r create dataset, fig.width=7.5, fig.height=10}
+set.seed(0720)
+data <- 
+  data.frame(ID = 1:100, 
+             amt = sample(c(50,100,200),replace = TRUE, size=100), 
+             cmt = 1, 
+             evid = 1, 
+             time = 5, 
+             geno = sample(c(1,2,3), replace = TRUE, size=100),
+             age = rtruncnorm(n=100, a=0, b=Inf, mean=50, sd=5),
+             sex = sample(c(0,1), replace = TRUE, size=100),
+             ethnicity = sample(c(0,1), replace = TRUE, size=100)
+  )
+
+#wt ht crcl
+
+output <- data.frame(NULL)
+
+for (i in 1:100){
+  temp <- subset(data, ID == i)
+  temp <- 
+    temp %>% 
+    mutate(wt = if_else(sex == 0,
+                        rtruncnorm(n=1, a=0, b=Inf, mean=60, sd=10),
+                        rtruncnorm(n=1, a=0, b=Inf, mean=70, sd=10))
+           ) %>%
+    mutate(ht = if_else(sex == 0,
+                        rtruncnorm(n=1, a=0, b=Inf, mean=160, sd=10),
+                        rtruncnorm(n=1, a=0, b=Inf, mean=175, sd=10))
+           ) %>% 
+    
+    mutate(crcl = if_else(sex == 0,
+                          rtruncnorm(n=1, a=0, b=Inf, mean=115, sd=10),
+                          rtruncnorm(n=1, a=0, b=Inf, mean=130, sd=10))
+           )
+  output <- rbind(output, temp)
+}
+
+data <- output
+
+plot_hist <- function(column){
+  column = enquo(column)
+  
+  data %>% 
+  ggplot() + 
+  geom_histogram(aes(x=!!column, fill=as.character(sex)), bins=30)+
+  theme_bw() + 
+  theme(legend.title = element_blank())
+}
+
+plot_bar <- function(column){
+  column = enquo(column)
+  
+  data %>% 
+  ggplot() +
+  geom_bar(aes(x=!!column, fill=as.character(sex)))+
+  theme_bw()+ 
+  theme(legend.title = element_blank())
+}
+
+p1 <- plot_hist(age)
+p2 <- plot_hist(wt)
+p3 <- plot_hist(ht)
+p4 <- plot_hist(crcl)
+p5 <- plot_bar(geno)
+p6 <- plot_bar(sex)
+p7 <- plot_bar(amt)
+p8 <- plot_bar(ethnicity)
+
+ggarrange(p1, p2, p3, p4, p5, p6, p7, p8, ncol = 2, nrow = 4, common.legend = TRUE)
+```
+
+```{r read in model}
+pkpd <- mcode("pkpd_model", pkpd_model)
+```
+
+
+```{r simulation}
+set.seed(0720)
+sim <- 
+  pkpd %>% 
+  data_set(data) %>% 
+  mrgsim(end=100, delta=0.1, tad=TRUE, obsonly=TRUE) %>% 
+  as.data.frame()
+
+plot_sim <- function(data, column){
+  column <- enquo(column)
+
+  data %>% 
+  ggplot(aes(x=time, y=!!column, group=ID))+
+  geom_line()+
+  theme_bw()
+}
+
+p9 <- plot_sim(data=sim, column=cp)
+p10 <- plot_sim(data=sim, column=res)
+p11 <- plot_sim(data=sim, column=pkobs)
+p12 <- plot_sim(data=sim, column=pdobs)
+
+ggarrange(p9, p10, p11, p12, ncol=2, nrow=2)
+```
+
+```{r sample data points based on study design}
+obs <- 
+  sim %>% 
+  filter(tad %in% c(-2, 0.5, 1, 2, 4, 8, 12, 24, 48)) %>% 
+  select(ID, time, tad, pkobs, pdobs)
+
+p13 <- 
+  obs %>% 
+  ggplot(aes(x=time, y=pkobs, group=ID))+
+  geom_line()+
+  theme_bw()
+
+p14 <- 
+  obs %>% 
+  ggplot(aes(x=time, y=pdobs, group=ID))+
+  geom_line()+
+  theme_bw()
+
+ggarrange(p13, p14, ncol=2)
+  
+```
+
+```{r merge dataset}
+#reshape obs (long)
+obs_long <- 
+  melt(obs,              
+       id.vars=c("ID", "time", "tad"),            
+       variable.name = "type",
+       value.name = "dv")
+
+obs_long <- obs_long %>% arrange(ID, time) %>% filter(dv != 0) 
+
+df <- merge(data, obs_long, by=c("ID", "time"), all=TRUE)
+
+#names(df)
+df <- 
+  df %>% select(ID       , time, tad , dv  , amt, 
+                cmt      , evid, type, geno, sex, 
+                ethnicity, age , wt  , ht  , crcl)
+
+#fill in NAs column by column
+df <- df %>% mutate(tad = if_else(is.na(tad), 0, tad))
+df <- df %>% mutate(dv = if_else(is.na(dv), 0, dv))
+df <- df %>% mutate(amt = if_else(is.na(amt), 0, amt))
+df <- df %>% mutate(cmt = if_else(type == "pkobs", 5, 6)) %>% mutate(cmt = if_else(is.na(cmt), 1, cmt))
+df <- df %>% mutate(evid = if_else(is.na(evid), 0, evid))
+df <- df %>% mutate(type = if_else(cmt == 6, 2, 1))
+df <- df %>% mutate(mdv = if_else(evid == 1, 1, 0)) %>% select(ID, time, tad , dv, amt, cmt, evid, mdv, everything())
+
+df <- 
+  df %>% 
+  group_by(ID) %>% 
+  fill(geno     , .direction = "downup") %>% 
+  fill(sex      , .direction = "downup") %>% 
+  fill(ethnicity, .direction = "downup") %>% 
+  fill(age      , .direction = "downup") %>% 
+  fill(wt       , .direction = "downup") %>% 
+  fill(ht       , .direction = "downup") %>% 
+  fill(crcl     , .direction = "downup") 
+
+df <- df %>% group_by(ID) %>% mutate(dose = max(unique(amt)))
+df <- df %>% mutate(bmi = wt/((ht/100)^2))
+
+```
+
+
+```{r simulate actual time}
+output <- data.frame(NULL)
+
+set.seed(0720)
+for (i in unique(df$ID)){
+  temp1 <- subset(df, ID == i)
+  time_diff <- runif(length(unique(temp1$time)), min = -0.2, max = 0.2)
+  temp2 <- data.frame(time = unique(temp1$time), diff = time_diff)
+  temp <- merge(temp1, temp2, by=c("time"), all.x=TRUE)
+  output <- rbind(output, temp)
+}
+
+df <- output
+df <- df %>% rename(nom_time = time, nom_tad = tad)
+df <- df %>% mutate(time = round(nom_time + diff, digits = 2),
+                    tad = round(nom_tad + diff, digits = 2))
+df <- df %>% arrange(ID, time) %>% select(ID, time, tad, nom_time, nom_tad, diff, everything())
+```
+
+
+
+```{r simulate date and clocktime}
+output <- data.frame(NULL)
+
+for (i in 1:100){
+  temp1 <- subset(df, ID == i)
+  temp1 <- 
+    temp1 %>% 
+    mutate(date = runif(1, min=18700, max=18800)) %>% 
+    mutate(date = if_else(nom_tad > 38, date+2, 
+                          if_else(nom_tad > 14, date+1, date)))
+  temp1 <- 
+    temp1 %>% 
+    mutate(clocktime = tad*3600+3600*10)%>% 
+    mutate(clocktime = if_else(nom_tad > 38, clocktime-3600*48, 
+                               if_else(nom_tad > 14, clocktime-3600*24, clocktime)))
+  
+  output <- rbind(output, temp1)
+}
+
+output <- 
+  output %>% 
+  mutate(date = as_date(date), 
+         clocktime = hms::as_hms(clocktime))
+
+output <- output %>% select(ID, time, tad, nom_time, nom_tad, diff, date, clocktime, everything())
+output <- output %>% select(-time, -nom_time, -diff)
+df <- output
+
+```
+
+```{r random miss observations for each individual}
+output <- data.frame(NULL)
+
+set.seed(0720)
+for (i in 1:100){
+  temp <- subset(df, ID == i)
+  
+  temp_dose <- subset(temp, amt != 0)
+  
+  temp_obs <- subset(temp, amt == 0)
+  temp_obs <- temp_obs %>% mutate(index = type*1000+tad)
+  n <- sample(c(0,1,2,3), size=1)
+  temp_obs <- temp_obs %>% filter(!(index %in% sample(unique(temp_obs$index), replace = FALSE, size=n)))  
+  temp_obs <- temp_obs %>% select(-index)
+  
+  temp_new <- rbind(temp_dose, temp_obs)
+  output <- rbind(output, temp_new)
+}
+
+output <- output %>% arrange(ID, tad)
+df <- output
+```
+
+```{r data check}
+p15 <- 
+  df %>% 
+  filter(cmt == 5) %>% 
+  mutate(dose = as.character(dose)) %>% 
+  mutate(dose = fct_relevel(dose, c("50", "100", "200"))) %>% 
+  ggplot(aes(x=tad, y=dv, group=ID, color=dose))+
+  geom_line()+
+  geom_vline(xintercept = 0, linetype=2)+
+  theme_bw()+
+  scale_y_log10()
+
+p16 <- 
+  df %>% 
+  filter(cmt == 6) %>% 
+  mutate(dose = as.character(dose)) %>% 
+  mutate(dose = fct_relevel(dose, c("50", "100", "200"))) %>% 
+  ggplot(aes(x=tad, y=dv, group=ID, color=dose))+
+  geom_line()+
+  geom_vline(xintercept = 0, linetype=2)+
+  theme_bw()+
+  scale_y_log10()
+
+ggarrange(p15, p16, ncol=2, common.legend = TRUE)
+```
+
+```{r output dataset, eval=FALSE}
+getwd()
+write.csv(df, "r4pmx_dataset_simulation.csv", row.names = FALSE)
+```
+

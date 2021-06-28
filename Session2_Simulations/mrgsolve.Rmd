@@ -1,0 +1,478 @@
+---
+title: "mrgsolve"
+author: "Shen Cheng"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 1. `mrgsolve` in general
+- an `R` package for simulation from hierarchical, ordinary differential equation (ODE) based models typically employed in drug development.
+    - free, open-source software
+    - utilizes an ODE-solver from `ODEPACK` (freely-available in the public domain)
+- Language
+    - Models written in `C++` inside model specification format
+    - Simulation workflow in `R`
+    - Integrate certain `NONMEM` functionality so easier for `NONMEM` users to get involved
+        - `F`, `ALAG`, `SS`, `AMT`,`CMT`, etc
+
+# 2. Installation
+- [The trickest part](https://github.com/metrumresearchgroup/mrgsolve)
+    - `install.packages("mrgsolve")`
+    - `remotes::install_github("metrumresearchgroup/mrgsolve@dev")`
+    - `C++` complier
+    - `FORTRAN` complier
+- [installation guide](https://github.com/metrumresearchgroup/mrgsolve/wiki/mrgsolve-Installation) 
+- Prerequists:
+    - `R`: https://cran.r-project.org/
+        - Currently `R` >= 3.1.2 is required
+    - Seriously consider running in `Rstudio` if possible. This is not required but is recommended.
+    - Compilers: `C++` and `gfortran` 
+
+# 3. Simulation with `mrgsolve`
+
+Two major components:  
+
+- Model specification file written in `C++`
+- Simulation specification file written in `R`
+- We are able to combine two files into one as a single `R` script or `R markdown` file
+
+## 3.1 Model specification file
+
+- The model file for `mrgsolve` is written in `C++` syntax and saved as a `.cpp` file.
+- Alternatively, the model can be written in `C++` syntax and saved as a `R` object
+
+```{r example model file}
+
+one_comp_mod <- '
+
+[set] delta = 0.01, end = 50 //set options for simulations
+
+[PROB]
+// $PROB
+ - author: Shen Cheng
+ - date: `r Sys.Date()`
+ - comments: this is a demonstration
+ - one compartment model + first order absportion
+ - random effects added on `CL` and `VC` as exponential distributions
+ - proportional error model
+ - model covariate: SEX ~ CL
+
+$PARAM
+TVCL = 1, TVVC = 20, TVKA = 1, SEXCL=0.5, SEX=0
+
+$CMT  @annotated 
+// similar to $MODEL in NONMEM
+// if @annotated is not used, simply declare compartment names with a space
+
+DEPOT  : Depot compartment (mass)
+CENT   : Central compartment (mass)
+
+$MAIN
+// similar to $PK block in NONMEM
+  
+double CL   = TVCL*exp(ETA(1))*pow(SEXCL, SEX); //power function in C++ witten as pow(,)
+double VC   = TVVC*exp(ETA(2))                ; // "double" means defining the data structure as double
+double KA   = TVKA                            ; // ";" is required at the end of each defined variable
+
+  
+$GLOBAL 
+// declare variables you want to either use further in computation
+// OR derive variables you want calculated from computations
+
+// bool cure = FALSE; // declaring variables needs ";" at the end
+// double CL, VC, KA; // declaring variables so no "double" is need in $MAIN
+#define CP (CENT/VC)  // # define does not require ";"
+
+//[PREMABLE]
+// similar to $GLOBAL to some extent
+// However, unlike $MAIN $TABLE and $ODE, $PREMABLE only call once during the simulation
+
+$OMEGA @block
+// @block generates a block matrix with the formulation (1,1), (1,2), (2,2)....
+// @correlation will specify values to be corrleations instead as variances
+
+0.1 0.02 0.3
+
+$SIGMA 
+// sigma variances go here
+
+0.01
+
+$ODE
+//similar to $DES in NONMEM
+//differential equations go here
+  
+dxdt_DEPOT = -KA*DEPOT;
+dxdt_CENT  = KA*DEPOT - CL*CP;
+
+$TABLE
+//another block could be used for defining secondary parameters
+
+double DV = CP * (1 + EPS(1));
+
+$CAPTURE
+//This is a block to identify variables that should be captured in the simulated output
+
+CP, DV
+
+'
+```
+
+## 3.2 Simulation specification file
+
+### 3.2.1 Read model in R mrgsolve
+
+```{r call library, message=FALSE}
+library(mrgsolve) 
+library(tidyverse) #simulation with mrgsolve is normally integrated in a tidyverse workflow (lots of use of " %>% ")
+library(ggpubr) #package for combining plots
+```
+
+* We can read in our model from a saved `.cpp` file using `mread`  
+    -`mread("file name", "path")`
+
+```{r mread}
+mod <- mread("one_comp_mod", "/Users/shencheng/Documents/GitHub/SummerSession2021/Session2_Simulations")
+```
+
+* or we can read in our model from a `R` object using `mcode`
+    -`mcode("model name", code)`
+
+```{r mcode, eval=FALSE}
+mod <- mcode("one_comp_mod", one_comp_mod)
+```
+
+### 3.2.2 Model check
+
+```{r model check}
+mod        #model check
+param(mod) #check model parameters
+init(mod)  #check initial conditions of model compartments
+```
+
+### 3.2.3 Simulation workflow
+
+* A commonly used simulation workflow could be something like the codes shown below
+    
+```{r simulation work flow}
+#an illustration of the common workflow of simulation using mrgsolve
+mod %>%                           #start with model object
+  #req(CP, DV) %>%                 #request specific model output 
+  ev(amt=100, cmt=1, time=0) %>%  #specify the events
+  mrgsim(end=100, delta=0.1) %>%  #starts simulations, end and delta can be specified in the model file or within mrgsim 
+  plot()                          #a quick simulation check
+  #plot(CP~time)                  #only plot CP vs time
+```
+
+* `nid` within `mrgsim` allows us to quickly do a population simulation
+
+```{r simulate population profiles}
+mod %>%                           
+  req(CP, DV) %>%                  
+  ev(amt=100, cmt=1, time=0) %>%          
+  mrgsim(end=100, delta=0.1, nid=10) %>% #nid: specify number of subjects we want to simulate 
+  plot() 
+```
+
+* Simulation with a dataset using `data_set()` could be very useful
+     - a dataset normally includes both interventions and populations
+
+```{r simulation with a dataset}
+data <- data.frame(ID = seq(1, 10), #simulate 10 subjects
+                   amt = 100, #amt specify doses
+                   cmt = 1, #specify dosing compartment
+                   time = 0, #specify dosing time
+                   evid = 1, #this is a doing event 
+                   SEX = sample(c(0,1), replace=TRUE, size=10)) #model covariate SEX, 0 means female, 1 means male
+                                                                #sample(), take 10 samples from c(0,1) with replacement 
+
+mod %>%                           
+  req(CP, DV) %>%                  
+  data_set(data) %>%   #simulate from a dataset, a dataset typically include event and population       
+  mrgsim(end=100, delta=0.1) %>%  
+  plot() 
+```
+
+* `plot()` after `mrgsim()` allows a quick check of the model output
+* Plotting with `ggplot()` allows more flexiblity and higher quality
+
+```{r plot with ggplot}
+sim <- 
+  mod %>%                           
+  req(CP, DV) %>%                  
+  data_set(data) %>%       
+  mrgsim(end=100, delta=0.1) %>% 
+  as.data.frame()  #turn model simulation into a data frame
+
+sim %>% 
+  ggplot(aes(x=time, y=CP, group=ID, color=as.character(ID)))+
+  geom_line()+
+  xlab("Time")+
+  ylab("Concentration")+
+  theme_bw()  #plot with ggplot 
+```
+
+* Sometimes we may want to simulate without random effects. 
+* `zero_re()` sets all random effects to 0 when model compile in
+
+```{r simulation without random effect}
+mod <- 
+  mread("one_comp_mod", "/Users/shencheng/Documents/GitHub/SummerSession2021/Session2_Simulations") %>% 
+  zero_re() # sets random effects to 0 when model compile in
+```
+
+```{r check omega matrix}
+omat(mod)  #check model omega matrix
+smat(mod)  #check model sigma matrix
+```
+
+
+* Let's simulate 10 subjects and check their difference
+
+```{r quick check of model simulation}
+mod %>%                           
+  req(CP, DV) %>%                  
+  ev(amt=100, cmt=1, time=0) %>%          
+  mrgsim(end=100, delta=0.1, nid=10) %>% 
+  plot() 
+```
+
+* Check sex effect on CL
+
+```{r check covariate effects}
+data_pop <- 
+  data.frame(ID = seq(1, 2), #simulate 2 subjects
+             amt = 100, #amt specify doses
+             cmt = 1, #specify dosing compartment
+             time = 0, #specify dosing time
+             evid = 1, #this is a doing event 
+             SEX = c(0,1)) #model covariate SEX, 0 means female, 1 means male
+
+sim_pop <- 
+  mod %>%                           
+  req(CP, DV) %>%                  
+  data_set(data_pop) %>%       
+  mrgsim(end=100, delta=0.1) %>% 
+  as.data.frame()  #turn model simulation into a data frame
+
+sim_pop %>% 
+  mutate(SEX = if_else(ID == 1, 0, 1)) %>% 
+  mutate(SEX = as.character(SEX)) %>% 
+  ggplot(aes(x=time, y=CP, group=ID, color=SEX))+
+  geom_line()+
+  xlab("Time")+
+  ylab("Concentration")+
+  theme_bw()
+```
+
+### 3.2.4 Interventions
+
+* `ev()` or `data_set()` are commonly used for specify interventions. Here're the things that can be recognized as interventions in either `ev()` or `data_set()`:
+
+    * `time` event time
+    * `cmt` Event compartment
+    * `amt` Dose amount
+    * `ii` Inter-dose interval
+    * `addl` Additional doses to administer
+    * `rate` Infusion rate
+        + rate = 0 is bolus
+        + rate > 0 is zero order infusion (`evid` 1)
+    * `ss` Set to 1 to advance to steady state
+    * `evid` Event id. 
+        + `evid` 0 is for "observations"
+        + `evid` 1 is for "dose"
+        + `evid` 2 is for "other"
+        + `evid` 3 is for compartment reset
+        + `evid` 4 is reset and dose
+    * `ID` Subject ID (use multiple ids - ID = 1:10)
+
+*`ev()` can easily combine of interventions
+
+```{r combine interventions}
+e1 = ev(amt=100, time=0, ii=24, addl=1)
+e2 = ev(amt=50, time=48, ii=24, addl=2)
+e3 = c(e1, e2)  #combine e1 and e2
+
+e4 = ev(amt=100, ii=24, addl=1)
+e5 = ev(amt=50, ii=24, addl=2)
+e6 = seq(e4, wait=36, e5)  #combine e4 and e5 in sequence
+                           #`wait=` sets intervals between interventions 
+
+p1 <- mod %>% ev(e1) %>% mrgsim(delta=0.01, end=200) %>% plot(CP ~ time)
+p2 <- mod %>% ev(e2) %>% mrgsim(delta=0.01, end=200) %>% plot(CP ~ time)
+p3 <- mod %>% ev(e3) %>% mrgsim(delta=0.01, end=200) %>% plot(CP ~ time)
+p4 <- mod %>% ev(e4) %>% mrgsim(delta=0.01, end=200) %>% plot(CP ~ time)
+p5 <- mod %>% ev(e5) %>% mrgsim(delta=0.01, end=200) %>% plot(CP ~ time)
+p6 <- mod %>% ev(e6) %>% mrgsim(delta=0.01, end=200) %>% plot(CP ~ time)
+
+ggarrange(p1, p2, p3, p4, p5, p6, ncol=3, nrow=2)
+```
+
+* `expand_ev()` facilate the simulations of different dosing regimens
+
+```{r expand.ev()}
+data_ev1 <- expand.ev(amt=c(50, 100, 150), time=0)
+data_ev2 <- expand.ev(amt=100, ii=c(12, 24, 36), addl=2)
+data_ev3 <- expand.ev(amt=c(50, 100, 150), ii=c(12, 24, 36), addl=2) #`expand_ev` on multiple factors sets all combinations on test conditions  
+
+p7 <- mod %>% data_set(data_ev1) %>% mrgsim(end=150, delta=0.1) %>% plot(CP~ time)
+p8 <- mod %>% data_set(data_ev2) %>% mrgsim(end=150, delta=0.1) %>% plot(CP~ time)
+p9 <- mod %>% data_set(data_ev3) %>% mrgsim(end=150, delta=0.1) %>% plot(CP~ time)
+
+ggarrange(p7, p8, p9, ncol=3)
+```
+
+
+### 3.2.5 Sensitivity analysis with `mrgsolve`
+
+* Sensitivity analysis is commonly used for assessing the impact of the parameters on model predictions. 
+* `mrgsolve` enables multiple ways to conduct sensitivity analysis
+    - `expand_idata`
+    - `knobs()`
+
+```{r expand.idata}
+idata <- expand.idata(TVCL = c(0.5, 1, 1.5))
+
+mod %>% 
+  idata_set(idata) %>% 
+  ev(amt=100, cmt=1, time=0) %>% 
+  mrgsim(end=50, delta=0.5) %>% 
+  plot()
+```
+
+
+
+```{r knobs()}
+mod %>% 
+  ev(amt=100, cmt=1, time=0) %>% 
+  knobs(TVCL = c(0.5, 1, 1.5)) %>%  #no `mrgsim` is needed if `knobs` is used
+  plot()
+```
+
+
+### 3.2.6 population simulation with `mrgsolve`
+
+* Let's first read back in our model with random effects
+
+```{r read in model with random effects again}
+mod <- mread("one_comp_mod", "/Users/shencheng/Documents/GitHub/SummerSession2021/Session2_Simulations")
+```
+
+```{r confirm random effects are non-zero}
+omat(mod)  #check model omega matrix
+smat(mod)  #check model sigma matrix
+```
+
+```{r conduct a population simulations}
+sim1 <- 
+  mod %>% 
+  ev(amt=100, cmt=1, time=0) %>% 
+  mrgsim(end=100, delta=0.1, nid=100, obsonly=TRUE) %>% #`obsonly` will carryout only observation records (evid=0)
+  as.data.frame()
+
+sim1 %>% 
+  ggplot(aes(x=time, y=CP, group=ID))+
+  geom_line()+
+  theme_bw()
+```
+
+* With functionalities in `tidyverse`, we can calculate summary statistics and then plot. 
+
+```{r}
+sim1 %>% 
+  group_by(time) %>% 
+  mutate(median = median(CP), 
+         upper = quantile(CP, 0.975), 
+         lower = quantile(CP, 0.025)) %>% 
+  ggplot()+
+  geom_line(aes(x=time, y=median), color="red", size=1.2)+
+  geom_ribbon(aes(x=time, ymin=lower, ymax=upper), fill="gray20", alpha=0.25)+
+  theme_bw()
+```
+
+### 3.2.7 update model parameters
+
+* Model parameters can be updated on the fly
+
+- Use `param()` for updating parameters in [PARAM] 
+
+```{r}
+param(mod)
+mod2 <- mod %>% param(TVVC = 30)
+param(mod2)
+```
+
+- Use `omat` to update parameters in [OMEGA]
+
+```{r}
+omat(mod)
+mod3 <- mod %>% omat(bmat(0.1, 0.002, 0.3)) #bmat used for updating a block matrix
+omat(mod3)
+```
+
+- Use `smat` to update parameters in [SIGMA]
+
+```{r}
+smat(mod)
+mod4 <- mod %>% smat(dmat(0.02)) #dmat used for updating a diagnal matrix
+smat(mod4)
+```
+
+- Evaluate the impact of the covariance between `ETA(1)` and `ETA(2)`
+
+```{r}
+mod5 <- mod %>% omat(dmat(0.1, 0.3))  #zero-out model covariance
+mod6 <- mod %>% omat(bmat(0.1, 0.15, 0.3)) 
+
+omat(mod5)
+omat(mod6)
+```
+
+```{r, warning = FALSE}
+pop_sim <- function(model){
+  set.seed(0720)  #set a seed to facilitate the reproducibility of the simulation
+  df <- 
+    model %>% 
+    ev(amt=100, cmt=1, time=0) %>% 
+    mrgsim(end=100, delta=0.1, nid=100, obsonly=TRUE) %>% 
+    as.data.frame()
+  
+  df <- 
+    df %>% 
+    group_by(time) %>% 
+    mutate(median = median(CP), 
+           upper = quantile(CP, 0.975), 
+           lower = quantile(CP, 0.025)) %>% 
+    ungroup()
+  
+  p <- 
+    df %>% 
+    ggplot()+
+    geom_line(aes(x=time, y=median), color="red", size=1.2)+
+    geom_ribbon(aes(x=time, ymin=lower, ymax=upper), fill="gray20", alpha=0.25)+
+    scale_y_log10(limits = c(0.000000001, 15))+
+    theme_bw()
+}
+
+p1 <- pop_sim(mod5) + ggtitle("cov = 0")
+p2 <- pop_sim(mod6) + ggtitle("cov = 0.15")
+
+ggarrange(p1, p2, ncol=2)
+```
+
+# 4. Useful Resources
+
+* https://github.com/mrgsolve/learn
+* GitHub site: https://github.com/metrumresearchgroup/mrgsolve
+* mrgsolve website: https://mrgsolve.github.io
+* User Guide: https://mrgsolve.github.io/user_guide
+
+
