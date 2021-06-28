@@ -356,6 +356,16 @@ df <-
 df <- df %>% group_by(ID) %>% mutate(dose = max(unique(amt))) #create dose column in convenience for plotting
 df <- df %>% mutate(bmi = wt/((ht/100)^2)) #create bmi column (kg/m^2)
 
+#keep 2 decimal places for all the continous cov
+df <- 
+  df %>% 
+  mutate(age = round(age, digits=2), 
+         wt = round(wt, digits=2), 
+         ht = round(ht, digits=2), 
+         crcl = round(crcl, digits=2), 
+         bmi = round(bmi, digits=2)
+         )
+
 ```
 
 ## 4.3 Simulate actual time
@@ -518,7 +528,22 @@ ggarrange(p15, p16, p17, p18, ncol=2, nrow=2, common.legend = TRUE)
 ```{r output dataset, eval=FALSE}
 setwd("/Users/shencheng/Documents/GitHub/SummerSession2021/Session2_Simulations")
 getwd()                                                          #confirm working directory before output
-write.csv(df, "r4pmx_dataset_simulation.csv", row.names = FALSE) #write.csv(data name in R, "output name.csv")
+
+#Personally, I prefer to use "." instead of 0 in `dv` and `amt` columns
+#Not required
+df_output <- 
+  df %>% 
+  mutate(dv = round(dv, digits = 4)) %>% 
+  mutate(dv = as.character(dv)) %>% 
+  mutate(amt = as.character(amt)) %>% 
+  mutate(dv = if_else(dv == "0", ".", dv)) %>% 
+  mutate(amt = if_else(amt == "0", ".", amt))
+
+#output dataset
+
+write.csv(df_output, "r4pmx_dataset_simulation.csv", row.names = FALSE) #write.csv(data name in R, "output name.csv")
                                                                  #`row.names = FALSE` removes the line number column
+
+#Can also use `write.table` here, but need to specfiy separations (eg. `sep=","`)
 ```
 
