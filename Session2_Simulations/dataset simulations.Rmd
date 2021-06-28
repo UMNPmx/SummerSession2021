@@ -13,7 +13,7 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-# Descriptions
+# 1. Descriptions
 
 * In this section, we will illustrate how to simulate a population dataset using `mrgsolve` from a PK-PD model
 * Scienrio: 
@@ -26,7 +26,7 @@ knitr::opts_chunk$set(echo = TRUE)
         - poor metabolizors (PM) exhibit 80% reduction in drug A clearance compared with extensive metabolizors (EM)
     - Drug A also exhibits a age-dependent decrease in clearance
     - Gender can impact the synthesis rate of protein B
-* mrgsolve model file is shown below
+* `mrgsolve` model file is shown below
    
 ```{r model file}
 pkpd_model <- '
@@ -48,7 +48,7 @@ pkpd_model <- '
 tvcl    :  1   : typical value of clearance (L/hr)
 tvvc    :  20  : typical value of central volume of distribution (L)
 tvktr   :  1   : typical value of transit rate (/hr) 
-tvic50  :  5   : typical value of concentration which introduce 50% of inhibitory effects (mg/L)
+tvic50  :  1   : typical value of concentration which introduce 50% of inhibitory effects (mg/L)
 tvkin   :  50  : synthetic rate (/hr)
 tvkout  :  5   : degradation rate (/hr)
 geno2cl :  0.5 : genotype 2 effect on cl
@@ -119,82 +119,97 @@ cp, res, pkobs, pdobs
 '
 ```
 
-# Study design
+# 2. Study design
 * Single dose study
-* 100 subjects were recruited following the informed consent. 
+* 100 subjects were recruited following the informed consent 
 * One pre-dose blood sample was collected from each subject to assess the baseline concentration of protein B
-* Drug A is administered as either 50, 100 or 200 mg tablet, 2 hours following the collection of first blood sample
+* Drug A is administered orally as either 50, 100 or 200 mg tablet
 * Blood samples were then collected at 0.5, 1, 2, 4, 8, 12, 24, 48 hours post-dose
-* Plasma concentrations of drug A and protein B were meausred in samples collected post-dose
+* Plasma concentrations of drug A and protein B were meausred
 
-# Simulations
+# 3. Simulations
 
 ```{r call library, message=FALSE}
 library(mrgsolve)
 library(tidyverse)
 library(ggpubr)
 library(truncnorm) #functionality related to truncated nomral distribution
-library(reshape2)  #melt/dcast
-library(lubridate) #date calculations
+library(reshape2)  #reshape long/wide dataset: melt/dcast
+library(lubridate) #date and clocktime calculations
 ```
 
+## 3.1 Create dataset for simulation
 
-```{r create dataset, fig.width=7.5, fig.height=10}
-set.seed(0720)
+* First, let's create a dataset (intervention + population) for simulation
+    - The dataset contains 100 subjects
+    - Each subject receives 50, 100 or 200 mg of drug A orally
+    - Subjects' `genotype` (geno, 1: EM/2: IM/3: PM), `age` (in years), `sex` (0: female/1: male), `ethnicity` (0: hispanic/1: non-hispanic), `weight` (wt, in kg), `height` (ht, in cm), `creatine clearance` (crcl, in ml/min) were collected
+    - Remainder: `weight`, `height` and `creatine clearance` normally correlate with sex
+
+```{r create dataset}
+set.seed(0720) #set a seed for reproducibilty
 data <- 
-  data.frame(ID = 1:100, 
-             amt = sample(c(50,100,200),replace = TRUE, size=100), 
-             cmt = 1, 
-             evid = 1, 
-             time = 5, 
-             geno = sample(c(1,2,3), replace = TRUE, size=100),
-             age = rtruncnorm(n=100, a=0, b=Inf, mean=50, sd=5),
-             sex = sample(c(0,1), replace = TRUE, size=100),
-             ethnicity = sample(c(0,1), replace = TRUE, size=100)
+  data.frame(ID = 1:100,                                              #100 subjects
+             amt = sample(c(50,100,200),replace = TRUE, size=100),    #sample 100 doses from c(50, 100, 200) with replacement
+             cmt = 1,                                                 #dose in compartment 1
+             evid = 1,                                                #event id 1: dose event
+             time = 5,                                                #non-zero dose time to accommodate predose sample
+             geno = sample(c(1,2,3), replace = TRUE, size=100),       #genotype (1: EM/2: IM/3: PM)
+             age = rtruncnorm(n=100, a=0, b=Inf, mean=50, sd=5),      #age (trunc N(50,5) (lower bound 0)
+             sex = sample(c(0,1), replace = TRUE, size=100),          #sex (0: female/1: male)
+             ethnicity = sample(c(0,1), replace = TRUE, size=100)     #ethnicity (0: hispanic/1: non-hispanic)
   )
 
-#wt ht crcl
+#generate weight (wt), height (ht) and creatine clearance (crcl) 
+#assuming these parameters are correlated with sex
 
 output <- data.frame(NULL)
 
 for (i in 1:100){
-  temp <- subset(data, ID == i)
+  temp <- subset(data, ID == i)  #subset one individual for one time
   temp <- 
     temp %>% 
     mutate(wt = if_else(sex == 0,
-                        rtruncnorm(n=1, a=0, b=Inf, mean=60, sd=10),
-                        rtruncnorm(n=1, a=0, b=Inf, mean=70, sd=10))
+                        rtruncnorm(n=1, a=0, b=Inf, mean=60, sd=10), #wt female (trunc N(60,10) (lower bound 0) (kg)
+                        rtruncnorm(n=1, a=0, b=Inf, mean=70, sd=10)) #wt male (trunc N(70,10) (lower bound 0) (kg)
            ) %>%
     mutate(ht = if_else(sex == 0,
-                        rtruncnorm(n=1, a=0, b=Inf, mean=160, sd=10),
-                        rtruncnorm(n=1, a=0, b=Inf, mean=175, sd=10))
+                        rtruncnorm(n=1, a=0, b=Inf, mean=160, sd=10), #ht female (trunc N(160,10) (lower bound 0) (cm)
+                        rtruncnorm(n=1, a=0, b=Inf, mean=175, sd=10)) #ht male (trunc N(175,10) (lower bound 0) (cm)
            ) %>% 
     
     mutate(crcl = if_else(sex == 0,
-                          rtruncnorm(n=1, a=0, b=Inf, mean=115, sd=10),
-                          rtruncnorm(n=1, a=0, b=Inf, mean=130, sd=10))
+                          rtruncnorm(n=1, a=0, b=Inf, mean=115, sd=10), #crcl female (trunc N(115,10) (lower bound 0) (ml/min)
+                          rtruncnorm(n=1, a=0, b=Inf, mean=130, sd=10)) #crcl male (trunc N(130,10) (lower bound 0) (ml/min)
            )
-  output <- rbind(output, temp)
+  output <- rbind(output, temp) #row bind temp dataset after processing
 }
 
 data <- output
+```
 
-plot_hist <- function(column){
-  column = enquo(column)
+* We can check the dataset created to see if anything out of our expectation
+
+```{r check created dataset, fig.width=7.5, fig.height=10}
+
+plot_hist <- function(column){   #create a function for continous covariate exploration
+  column = enquo(column)   #Identify arguments referring to data frame columns directly. 
+                           #quote these arguments
+                           #!!: unquote arguments later inside the plot step
   
   data %>% 
   ggplot() + 
-  geom_histogram(aes(x=!!column, fill=as.character(sex)), bins=30)+
+  geom_histogram(aes(x=!!column, fill=as.character(sex)), bins=30)+ #plot as histogram, bins sets bin bumber
   theme_bw() + 
   theme(legend.title = element_blank())
 }
 
-plot_bar <- function(column){
+plot_bar <- function(column){    #create a function for categorical covariate exploration
   column = enquo(column)
   
   data %>% 
   ggplot() +
-  geom_bar(aes(x=!!column, fill=as.character(sex)))+
+  geom_bar(aes(x=!!column, fill=as.character(sex)))+   #plot as barplot
   theme_bw()+ 
   theme(legend.title = element_blank())
 }
@@ -211,17 +226,20 @@ p8 <- plot_bar(ethnicity)
 ggarrange(p1, p2, p3, p4, p5, p6, p7, p8, ncol = 2, nrow = 4, common.legend = TRUE)
 ```
 
-```{r read in model}
-pkpd <- mcode("pkpd_model", pkpd_model)
-```
+## 3.2 Simulation with `mrgsolve`
 
+* Using the dataset created (intervention + population), we can start our simulation
+
+```{r read in model}
+pkpd <- mcode("pkpd_model", pkpd_model) #read model in using mcode
+```
 
 ```{r simulation}
 set.seed(0720)
 sim <- 
   pkpd %>% 
   data_set(data) %>% 
-  mrgsim(end=100, delta=0.1, tad=TRUE, obsonly=TRUE) %>% 
+  mrgsim(end=100, delta=0.1, tad=TRUE, obsonly=TRUE) %>% #`tad=TRUE` allows the calculation of the "time after dose"
   as.data.frame()
 
 plot_sim <- function(data, column){
@@ -241,12 +259,18 @@ p12 <- plot_sim(data=sim, column=pdobs)
 ggarrange(p9, p10, p11, p12, ncol=2, nrow=2)
 ```
 
+## 3.3 sample observations out of simulations
+
+* We have simulated a large dataset contains 1001 observations for each individual!
+* We will now select observations based on our study design
+
 ```{r sample data points based on study design}
 obs <- 
   sim %>% 
-  filter(tad %in% c(-2, 0.5, 1, 2, 4, 8, 12, 24, 48)) %>% 
-  select(ID, time, tad, pkobs, pdobs)
+  filter(tad %in% c(-2, 0.5, 1, 2, 4, 8, 12, 24, 48)) %>% #select datapoints based on study design from simulated dataset
+  select(ID, time, tad, pkobs, pdobs) #only keep these five columns
 
+#data check
 p13 <- 
   obs %>% 
   ggplot(aes(x=time, y=pkobs, group=ID))+
@@ -259,53 +283,89 @@ p14 <-
   geom_line()+
   theme_bw()
 
-ggarrange(p13, p14, ncol=2)
+ggarrange(p13, p14, ncol=2) 
   
 ```
 
+# 4. Further processing
+
+## 4.1 Merge `observations`, `interventions` and `demographics`
+
+* We now have a dataset contains all the observation `obs`
+* And a dataset contains all the intervention and covariate information
+* Let's merge these two datasets into one
+    - `melt` and `dcast` are functions in package `reshape2`, they convert "wide dataset into long format" and "long dataset into wide format" respectively
+    - `merge` is a very useful `base` R function, it helps merge two datasets into one based on their common columns
+
 ```{r merge dataset}
-#reshape obs (long)
 obs_long <- 
-  melt(obs,              
-       id.vars=c("ID", "time", "tad"),            
-       variable.name = "type",
-       value.name = "dv")
+  melt(obs,                                  #dataset to reshape
+       id.vars=c("ID", "time", "tad"),       #index variables
+       variable.name = "type",               #name for new variable created
+       value.name = "dv")                    #name for melted varible 
 
-obs_long <- obs_long %>% arrange(ID, time) %>% filter(dv != 0) 
+obs_long <- obs_long %>% arrange(ID, time) %>% filter(dv != 0)  #sort dataset by ID and time
+                                                                #remove pkobs pre-dose
 
-df <- merge(data, obs_long, by=c("ID", "time"), all=TRUE)
+df <- merge(data, obs_long, by=c("ID", "time"), all=TRUE) #merge dose record (data) and observation records
+                                                          #by: set columns used for merging
+                                                          #all: whether to keep unmatching rows
 
-#names(df)
+#df <- merge(data, obs_long, by=c("ID", "time"), all.x=TRUE) #all.x=TRUE will delete unmatching rows
+
 df <- 
   df %>% select(ID       , time, tad , dv  , amt, 
                 cmt      , evid, type, geno, sex, 
-                ethnicity, age , wt  , ht  , crcl)
+                ethnicity, age , wt  , ht  , crcl)   #reorder columns
+```
+
+## 4.2 Fill in `NA`
+
+* After merging two datasets, it is sometimes inevitable to have `NA` since some rows in dataset `x` don't have matching rows in dataset `y`
+* Thus, we need to fill in these `NA` based on our expectation
+    - `mutate(var = if_else())` is a useful syntax to use. It fills in information in one column based on the condition of certain columns in the dataset
+    - `fill` in `tidyr` is also very useful. It fills in information based on the available information in a column and the direction specified
+* I used to creat some columns (such as `dose` and `bmi`) which I think maybe useful for further data processing, exploration and analysis at this step. 
+
+```{r fill in NAs after merge}
 
 #fill in NAs column by column
-df <- df %>% mutate(tad = if_else(is.na(tad), 0, tad))
-df <- df %>% mutate(dv = if_else(is.na(dv), 0, dv))
-df <- df %>% mutate(amt = if_else(is.na(amt), 0, amt))
-df <- df %>% mutate(cmt = if_else(type == "pkobs", 5, 6)) %>% mutate(cmt = if_else(is.na(cmt), 1, cmt))
-df <- df %>% mutate(evid = if_else(is.na(evid), 0, evid))
-df <- df %>% mutate(type = if_else(cmt == 6, 2, 1))
-df <- df %>% mutate(mdv = if_else(evid == 1, 1, 0)) %>% select(ID, time, tad , dv, amt, cmt, evid, mdv, everything())
+df <- df %>% mutate(tad = if_else(is.na(tad), 0, tad)) #set tad NA to 0 
+df <- df %>% mutate(dv = if_else(is.na(dv), 0, dv)) #set dv NA to 0
+df <- df %>% mutate(amt = if_else(is.na(amt), 0, amt)) #set amt NA to 0
+df <- df %>% mutate(cmt = if_else(type == "pkobs", 5, 6)) %>% mutate(cmt = if_else(is.na(cmt), 1, cmt)) #set cmt=1 for dose
+                                                                                                        #set cmt=5 for pkobs
+                                                                                                        #set cmt=6 for pdobs
+df <- df %>% mutate(evid = if_else(is.na(evid), 0, evid)) #set evid NA to 0
+df <- df %>% mutate(type = if_else(cmt == 6, 2, 1)) #set type for pk data as 1, for pd data as 2
+df <- df %>% mutate(mdv = if_else(evid == 1, 1, 0)) %>% select(ID, time, tad , dv, amt, cmt, evid, mdv, everything()) 
+#create mdv (missing dependent variable)
+#everything() will include everything left so we don't need to type everything out
 
 df <- 
   df %>% 
   group_by(ID) %>% 
-  fill(geno     , .direction = "downup") %>% 
-  fill(sex      , .direction = "downup") %>% 
+  fill(geno     , .direction = "downup") %>% #fill NA for each individual
+  fill(sex      , .direction = "downup") %>% #downup: set fill direction middle out
   fill(ethnicity, .direction = "downup") %>% 
   fill(age      , .direction = "downup") %>% 
   fill(wt       , .direction = "downup") %>% 
   fill(ht       , .direction = "downup") %>% 
   fill(crcl     , .direction = "downup") 
 
-df <- df %>% group_by(ID) %>% mutate(dose = max(unique(amt)))
-df <- df %>% mutate(bmi = wt/((ht/100)^2))
+df <- df %>% group_by(ID) %>% mutate(dose = max(unique(amt))) #create dose column in convenience for plotting
+df <- df %>% mutate(bmi = wt/((ht/100)^2)) #create bmi column (kg/m^2)
 
 ```
 
+## 4.3 Simulate actual time
+
+* In reality, it is extremely difficult to sample at exact time points as in the study protocol
+* Thus, the actual sample time normally deviate a bit from the designed sample time
+* We can simulate the actual sample time by sample a time difference between a synmetrical time range around 0
+    - Here we assume a ± 0.2 hour time difference 
+* Then add up the simulated exact time and the time difference
+    - `round` can be used to round up the decimal places after calculation
 
 ```{r simulate actual time}
 output <- data.frame(NULL)
@@ -313,20 +373,25 @@ output <- data.frame(NULL)
 set.seed(0720)
 for (i in unique(df$ID)){
   temp1 <- subset(df, ID == i)
-  time_diff <- runif(length(unique(temp1$time)), min = -0.2, max = 0.2)
-  temp2 <- data.frame(time = unique(temp1$time), diff = time_diff)
-  temp <- merge(temp1, temp2, by=c("time"), all.x=TRUE)
+  time_diff <- runif(length(unique(temp1$time)), min = -0.2, max = 0.2)  #sample time_diff U(-0.2, 0.2) (unit: hour)
+  temp2 <- data.frame(time = unique(temp1$time), diff = time_diff) #create a dataframe with time and time_diff
+  temp <- merge(temp1, temp2, by=c("time"), all.x=TRUE) #merge time_diff in
   output <- rbind(output, temp)
 }
 
 df <- output
-df <- df %>% rename(nom_time = time, nom_tad = tad)
-df <- df %>% mutate(time = round(nom_time + diff, digits = 2),
-                    tad = round(nom_tad + diff, digits = 2))
+df <- df %>% rename(nom_time = time, nom_tad = tad) #rename time and tad as nominal time and tad 
+df <- df %>% mutate(time = round(nom_time + diff, digits = 2), #create time = nom_time + time_diff, round to 2 decimal place
+                    tad = round(nom_tad + diff, digits = 2)) #create tad = nom_tad + time_diff, round to 2 decimal place
 df <- df %>% arrange(ID, time) %>% select(ID, time, tad, nom_time, nom_tad, diff, everything())
 ```
 
+## 4.4 Simulate date and clock time
 
+* In reality, sampling time may also be recorded as date and clock time. 
+* Here, we can simulate this using package `lubridate`
+    - `as_date()` can convert days since `1970-01-01` into a date
+    - `hms::as_hms()` can convert seconds since `00:00:00` into a clock time
 
 ```{r simulate date and clocktime}
 output <- data.frame(NULL)
@@ -336,42 +401,48 @@ for (i in 1:100){
   temp1 <- 
     temp1 %>% 
     mutate(date = runif(1, min=18700, max=18800)) %>% 
-    mutate(date = if_else(nom_tad > 38, date+2, 
-                          if_else(nom_tad > 14, date+1, date)))
+    mutate(date = if_else(nom_tad > 38, date+2, #set dose time 10 am, if tad > 38 hr, add 2 days
+                          if_else(nom_tad > 14, date+1, date)))  #if tad > 14 hr, add 1 day
   temp1 <- 
     temp1 %>% 
     mutate(clocktime = tad*3600+3600*10)%>% 
-    mutate(clocktime = if_else(nom_tad > 38, clocktime-3600*48, 
-                               if_else(nom_tad > 14, clocktime-3600*24, clocktime)))
+    mutate(clocktime = if_else(nom_tad > 38, clocktime-3600*48, #set dose time 10 am, if tad > 38 hr, add 2 days (48hr*3600s)
+                               if_else(nom_tad > 14, clocktime-3600*24, clocktime))) #if tad > 14 hr, add 2 days (24hr*3600s)
   
   output <- rbind(output, temp1)
 }
 
 output <- 
   output %>% 
-  mutate(date = as_date(date), 
-         clocktime = hms::as_hms(clocktime))
+  mutate(date = as_date(date), #function in `lubridate`, convert days to dates 
+         clocktime = hms::as_hms(clocktime)) #function in `lubridate`, convert seconds to clocktime
 
-output <- output %>% select(ID, time, tad, nom_time, nom_tad, diff, date, clocktime, everything())
-output <- output %>% select(-time, -nom_time, -diff)
+output <- output %>% select(ID, time, tad, nom_time, nom_tad, diff, date, clocktime, everything()) #reorder columns
+output <- output %>% select(-time, -nom_time, -diff) #remove undesired columns
 df <- output
 
 ```
+
+## 4.5 Simulate missingness
+
+* Again, in reality, we may not be able to sample such a complete dataset
+* It is not uncommon that certain individuals miss a couple of samples
+* We can simulate missingness with a `for` loop as shown below
 
 ```{r random miss observations for each individual}
 output <- data.frame(NULL)
 
 set.seed(0720)
 for (i in 1:100){
-  temp <- subset(df, ID == i)
+  temp <- subset(df, ID == i) #subset one individual at a time
   
-  temp_dose <- subset(temp, amt != 0)
+  temp_dose <- subset(temp, amt != 0) #subset dose records for that individual
   
-  temp_obs <- subset(temp, amt == 0)
-  temp_obs <- temp_obs %>% mutate(index = type*1000+tad)
-  n <- sample(c(0,1,2,3), size=1)
-  temp_obs <- temp_obs %>% filter(!(index %in% sample(unique(temp_obs$index), replace = FALSE, size=n)))  
-  temp_obs <- temp_obs %>% select(-index)
+  temp_obs <- subset(temp, amt == 0) #subset observation records for that individual
+  temp_obs <- temp_obs %>% mutate(index = type*1000+tad) #create a index column 
+  n <- sample(c(0,1,2,3), size=1) #randomly decide number of missing samples for an individual
+  temp_obs <- temp_obs %>% filter(!(index %in% sample(unique(temp_obs$index), replace = FALSE, size=n))) #drop missing samples
+  temp_obs <- temp_obs %>% select(-index) #delete index column
   
   temp_new <- rbind(temp_dose, temp_obs)
   output <- rbind(output, temp_new)
@@ -381,15 +452,22 @@ output <- output %>% arrange(ID, tad)
 df <- output
 ```
 
+# 5. Output
+
+## 5.1 Check simulated dataset
+
+* Now, a `NONMEM` dataset for fitting a PK-PD model has been simulated
+* Let's check our simulated dataset a bit
+
 ```{r data check}
 p15 <- 
   df %>% 
   filter(cmt == 5) %>% 
-  mutate(dose = as.character(dose)) %>% 
-  mutate(dose = fct_relevel(dose, c("50", "100", "200"))) %>% 
+  mutate(dose = as.character(dose)) %>% #convert data structure
+  mutate(dose = fct_relevel(dose, c("50", "100", "200"))) %>% #reorder data item
   ggplot(aes(x=tad, y=dv, group=ID, color=dose))+
   geom_line()+
-  geom_vline(xintercept = 0, linetype=2)+
+  geom_vline(xintercept = 0, linetype=2)+ #add vertical line indicating dosing time
   theme_bw()+
   scale_y_log10()
 
@@ -404,11 +482,43 @@ p16 <-
   theme_bw()+
   scale_y_log10()
 
-ggarrange(p15, p16, ncol=2, common.legend = TRUE)
+p17 <- 
+  df %>% 
+  filter(cmt == 5) %>% 
+  group_by(dose, nom_tad) %>% 
+  mutate(mean = mean(dv), sd = sd(dv)) %>% 
+  ungroup() %>% 
+  mutate(dose = as.character(dose)) %>% 
+  mutate(dose = fct_relevel(dose, c("50", "100", "200"))) %>% 
+  ggplot()+
+  geom_line(aes(x=nom_tad, y=mean, group=dose, color=dose))+
+  geom_ribbon(aes(x=nom_tad, ymin=mean-sd, ymax=mean+sd, group=dose, fill=dose), alpha=0.25)+
+  theme_bw()
+
+p18 <- 
+  df %>% 
+  filter(cmt == 6) %>% 
+  group_by(dose, nom_tad) %>% 
+  mutate(mean = mean(dv), sd = sd(dv)) %>% 
+  ungroup() %>% 
+  mutate(dose = as.character(dose)) %>% 
+  mutate(dose = fct_relevel(dose, c("50", "100", "200"))) %>% 
+  ggplot()+
+  geom_line(aes(x=nom_tad, y=mean, group=dose, color=dose))+
+  geom_ribbon(aes(x=nom_tad, ymin=mean-sd, ymax=mean+sd, group=dose, fill=dose), alpha=0.25)+
+  theme_bw()
+
+ggarrange(p15, p16, p17, p18, ncol=2, nrow=2, common.legend = TRUE)
 ```
 
+## 5.2 Output dataset 
+
+* At the end, we normally output our simulated dataset in to a `.csv` file for further use in `NONMEM` 
+
 ```{r output dataset, eval=FALSE}
-getwd()
-write.csv(df, "r4pmx_dataset_simulation.csv", row.names = FALSE)
+setwd("/Users/shencheng/Documents/GitHub/SummerSession2021/Session2_Simulations")
+getwd()                                                          #confirm working directory before output
+write.csv(df, "r4pmx_dataset_simulation.csv", row.names = FALSE) #write.csv(data name in R, "output name.csv")
+                                                                 #`row.names = FALSE` removes the line number column
 ```
 
