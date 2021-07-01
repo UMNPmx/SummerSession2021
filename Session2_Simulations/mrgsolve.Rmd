@@ -78,7 +78,7 @@ CENT   : Central compartment (mass)
 $MAIN
 // similar to $PK block in NONMEM
   
-double CL   = TVCL*exp(ETA(1))*pow(SEXCL, SEX); //power function in C++ witten as pow(,)
+double CL   = TVCL*exp(ETA(1))*pow(SEXCL, SEX); //power function in C++ witten as pow(,), SEXCL^SEX
 double VC   = TVVC*exp(ETA(2))                ; // "double" means defining the data structure as double
 double KA   = TVKA                            ; // ";" is required at the end of each defined variable
 
@@ -102,7 +102,7 @@ $OMEGA @block
 0.1 0.02 0.3
 
 $SIGMA 
-// sigma variances go here
+// epsilon variances go here
 
 0.01
 
@@ -141,6 +141,9 @@ library(ggpubr) #package for combining plots
 
 ```{r mread}
 mod <- mread("one_comp_mod", "/Users/shencheng/Documents/GitHub/SummerSession2021/Session2_Simulations")
+
+# setwd("/Users/shencheng/Documents/GitHub/SummerSession2021/Session2_Simulations")
+# mod <- mread("one_comp_mod") 
 ```
 
 * or we can read in our model from a `R` object using `mcode`
@@ -156,6 +159,8 @@ mod <- mcode("one_comp_mod", one_comp_mod)
 mod        #model check
 param(mod) #check model parameters
 init(mod)  #check initial conditions of model compartments
+omat(mod)  #check omega matrix
+smat(mod)  #check sigma matrix
 ```
 
 ### 3.2.3 Simulation workflow
@@ -335,10 +340,10 @@ ggarrange(p7, p8, p9, ncol=3)
 
 * Sensitivity analysis is commonly used for assessing the impact of the parameters on model predictions. 
 * `mrgsolve` enables multiple ways to conduct sensitivity analysis
-    - `expand_idata`
+    - `expand_idata()` and `idata_set()`
     - `knobs()`
 
-```{r expand.idata}
+```{r expand.idata() and idata_set()}
 idata <- expand.idata(TVCL = c(0.5, 1, 1.5))
 
 mod %>% 

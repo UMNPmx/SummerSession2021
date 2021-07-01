@@ -15,7 +15,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 # 1. Descriptions
 
-* In this section, we will illustrate how to simulate a population dataset using `mrgsolve` from a PK-PD model
+* In this section, we will illustrate how to simulate a population dataset using `mrgsolve` using a PK-PD model
 * Scienrio: 
     - A hypothetical Drug A is administered orally
     - Drug A can inhibit the synthesis of hypothetical soluble protein B 
@@ -51,8 +51,8 @@ tvktr   :  1   : typical value of transit rate (/hr)
 tvic50  :  1   : typical value of concentration which introduce 50% of inhibitory effects (mg/L)
 tvkin   :  50  : synthetic rate (/hr)
 tvkout  :  5   : degradation rate (/hr)
-geno2cl :  0.5 : genotype 2 effect on cl
-geno3cl :  0.2 : genotype 3 effect on cl
+geno2cl :  0.5 : genotype 2 effect on cl (IM)
+geno3cl :  0.2 : genotype 3 effect on cl (PM)
 agecl   :  -0.3: age effect on cl
 sexkin  :  0.8 : sex effect on kin
 geno    :  1   : reference genotype (extensive metabolizor: 1/intermediate metabolizor: 2/poor metabolizor: 3)
@@ -142,7 +142,7 @@ library(lubridate) #date and clocktime calculations
 
 * First, let's create a dataset (intervention + population) for simulation
     - The dataset contains 100 subjects
-    - Each subject receives 50, 100 or 200 mg of drug A orally
+    - Each subject receives either 50, 100 or 200 mg of drug A orally
     - Subjects' `genotype` (geno, 1: EM/2: IM/3: PM), `age` (in years), `sex` (0: female/1: male), `ethnicity` (0: hispanic/1: non-hispanic), `weight` (wt, in kg), `height` (ht, in cm), `creatine clearance` (crcl, in ml/min) were collected
     - Remainder: `weight`, `height` and `creatine clearance` normally correlate with sex
 
@@ -200,8 +200,7 @@ plot_hist <- function(column){   #create a function for continous covariate expl
   data %>% 
   ggplot() + 
   geom_histogram(aes(x=!!column, fill=as.character(sex)), bins=30)+ #plot as histogram, bins sets bin bumber
-  theme_bw() + 
-  theme(legend.title = element_blank())
+  theme_bw()
 }
 
 plot_bar <- function(column){    #create a function for categorical covariate exploration
@@ -210,8 +209,7 @@ plot_bar <- function(column){    #create a function for categorical covariate ex
   data %>% 
   ggplot() +
   geom_bar(aes(x=!!column, fill=as.character(sex)))+   #plot as barplot
-  theme_bw()+ 
-  theme(legend.title = element_blank())
+  theme_bw()
 }
 
 p1 <- plot_hist(age)
@@ -311,6 +309,7 @@ df <- merge(data, obs_long, by=c("ID", "time"), all=TRUE) #merge dose record (da
                                                           #by: set columns used for merging
                                                           #all: whether to keep unmatching rows
 
+#df <- merge(data, obs_long, by=c("ID", "time"))
 #df <- merge(data, obs_long, by=c("ID", "time"), all.x=TRUE) #all.x=TRUE will delete unmatching rows
 
 df <- 
@@ -325,7 +324,7 @@ df <-
 * Thus, we need to fill in these `NA` based on our expectation
     - `mutate(var = if_else())` is a useful syntax to use. It fills in information in one column based on the condition of certain columns in the dataset
     - `fill` in `tidyr` is also very useful. It fills in information based on the available information in a column and the direction specified
-* I used to creat some columns (such as `dose` and `bmi`) which I think maybe useful for further data processing, exploration and analysis at this step. 
+* I used to create some columns (such as `dose` and `bmi`) which I think maybe useful for further data processing, exploration and analysis at this step. 
 
 ```{r fill in NAs after merge}
 
