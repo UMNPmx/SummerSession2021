@@ -3,7 +3,7 @@ Summer 2021 workshops for pharmacometrics related topics. Content put on by ECP 
 
 **When**: Fridays from June 4th to August 27th (7 sessions)<br>
 **Where**: Zoom (contact Shen at `cheng423@umn.edu` (phone: `+1 7348460741`) for link)<br>
-**Time**: 2 hours each sessions, one sesion every two weeks<br>
+**Time**: 2 hours each sessions, one session every two weeks<br>
 **Format**:
 - Sessions will be moderated by someone with decent experience on the topic.
 - Each moderator will provide the following at the start/during the course of the session:
@@ -21,5 +21,5 @@ Summer 2021 workshops for pharmacometrics related topics. Content put on by ECP 
 |July 16|Ya-Feng Wen/Shen|Simulation - II <li>Format dataset into NONMEM format</li>|
 |July 30|Mutaz/Jessica |NONMEM - Model Building I|
 |August 13| Mutaz/Shen |NONMEM - Model Building II|<li>covariate selctions:scm,...</li>|
-|August 27| Mutaz/Shen |NONMEM - Model Evaluation I <li>Diagnostics</li><li>NPDE</li><li>VPC</li><li>BS/SIR</li>| 
+|August 27| Mutaz/Shen/Sam |NONMEM - Model Evaluation I <li>Diagnostics</li><li>NPDE</li><li>VPC</li><li>BS/SIR</li>| 
 |September 10| Mutaz/Shen |NONMEM - Model Evaluation II|
