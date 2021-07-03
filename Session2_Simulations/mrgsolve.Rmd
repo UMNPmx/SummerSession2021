@@ -66,11 +66,13 @@ one_comp_mod <- '
  - model covariate: SEX ~ CL
 
 $PARAM
-TVCL = 1, TVVC = 20, TVKA = 1, SEXCL=0.5, SEX=0
+TVCL = 1, TVVC = 20, TVKA = 1, SEXCL=0.5, SEX=0 //0 for female 1 for male
 
 $CMT  @annotated 
 // similar to $MODEL in NONMEM
 // if @annotated is not used, simply declare compartment names with a space
+//DEPOT
+//CENT
 
 DEPOT  : Depot compartment (mass)
 CENT   : Central compartment (mass)
@@ -173,8 +175,8 @@ mod %>%                           #start with model object
   #req(CP, DV) %>%                 #request specific model output 
   ev(amt=100, cmt=1, time=0) %>%  #specify the events
   mrgsim(end=100, delta=0.1) %>%  #starts simulations, end and delta can be specified in the model file or within mrgsim 
-  plot()                          #a quick simulation check
-  #plot(CP~time)                  #only plot CP vs time
+  #plot()                          #a quick simulation check
+  plot(CP~time)                  #only plot CP vs time
 ```
 
 * `nid` within `mrgsim` allows us to quickly do a population simulation
@@ -265,7 +267,7 @@ sim_pop <-
   mod %>%                           
   req(CP, DV) %>%                  
   data_set(data_pop) %>%       
-  mrgsim(end=100, delta=0.1) %>% 
+  mrgsim(end=100, delta=10) %>% 
   as.data.frame()  #turn model simulation into a data frame
 
 sim_pop %>% 
