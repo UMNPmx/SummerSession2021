@@ -1,0 +1,282 @@
+---
+title: "Session 3 - NONMEM Dataset Format"
+author: 
+- "Ya-Feng Wen"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: hide
+  pdf_document:
+    toc: true
+    toc_depth: 1
+---
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(warning=FALSE, message=FALSE, results=TRUE,
+                      fig.width=6, fig.height=4)
+```
+
+```{r load packages}
+# load packages used for this session
+library(tidyverse)
+library(data.table)
+library(knitr); library(kableExtra)
+```
+
+
+# Objectives
+* NONMEM Data file Requirement
+* Construct NONMEM Data file
+  + PK 
+  + PKPD
+  + PK with urine samples
+  
+# NONMEM Data File Rules and Best Practices
+- Data file is a comma or space delimited text file (save as .csv)
+- A data record is the row of the data file, and a data item is the column of the data file
+- Required data items (for all population models): **ID**, **DV**
+- Required data items (for PREDPP ADVAN models): **ID**, **DV**, **TIME**, **AMT**
+- Additional data items: **DATE**, **RATE**, **MDV**, **EVID**, **CMT**, **SS**, **ADDL**, **II**
+- Column name: best to have without spaces
+- List all records from one individual sequentially
+- Have a placeholder for every record. Use 0 or "." for null. ("." is treated as 0)
+- Use a separate record for each event (dose, observation, etc.).
+- All records must be ordered chronologically by actual event time within an individual and occasion. (Sort by ID then TIME) 
+
+**ID**: All records for a given subject must be placed together.
+
+**DV**: The dependent variable for PK or PD, or 0 (or a period) as a place holder on a dosing record 
+ 
+**TIME**: 
+
+- Ascending order for a given ID until the end of the subject's records or at a record with EVID = 3 or EVID = 4 that specifies a new occasion. 
+- Must be non-missing and non-negative for all records. 
+- Formatted as military clock time (17:30) or decimal valued time (17.5), but in the same format. Decimal value time is the elapsed time since some initial value and the first record does not need to be 0. 
+
+**DATE**: 
+
+- Formatted as calendar date (many different formats, MM/DD/YY, MM-DD-YY or others) or an integer (study day). If calendar date is use, $INPUT must specify DATE=DROP. 
+- When DATE is used, TIME must fall within 0-24 hours. 
+- See guide V for more details. 
+
+**AMT**: Dose or 0 (or a period) as a place holder for observation records. Unit for the AMT (dose, mg) and DV (concentrations, ug/L) do not have to be in equivalent mass units. Use scaling parameter in the control stream (e.g., S1 = V1/1000 when V1 is in L)
+
+**RATE**: Rate of infusion. 
+
+- RATE = 0, bolus
+- RATE = a real number great than 0, infusion rate
+- RATE = -1 (define rate of the infusion as a parameter of the model) or -2 (define duration of the infusion as a parameter of the model). See NONMEM guide for details. 
+
+**SS**: Steady-state dosing. 
+
+- SS = 0, non-steady-state dosing
+- SS = 1, steady-state dosing 
+
+| Steady State Dose | AMT | RATE | SS | II |
+|:--|:--|:--|:--|:--|
+|Multiple bolus or extravascular| > 0 | =0 | 1 | > 0 | 
+|Multiple infusions|              > 0 | > 0| 1 | > 0 |
+|Steady-state constant infusion|  = 0 | > 0| 1 | = 0 |
+
+
+**ADDL**: Number of additional identical doses given.
+
+**II**: Time between additional doses. (Use with ADDL or SS)
+
+
+**MDV**: Missing DV (NM-TRAN will generate default values when PREDPP is used)
+
+- MDV = 0, not missing data value and the DV of the record will be used in the analysis. 
+- MDV = 1, missing data value. Can be used to exclude the record in the analysis or for prediction at a nonobservation TIME. 
+
+**EVID**: Event ID (NM-TRAN will generate default values when PREDPP is used)
+
+- EVID = 0, Observation. The DV of the record will be used in the estimation if MDV=0. 
+- EVID = 1, Dose. The AMT, RATE, ADDL, II of the record will be used for the drug input information. 
+- EVID = 2, Other. Trigger a special event. IF(EVID==2) AUC=A(5)
+- EVID = 3, Reset. Reset the compartment values in the model to 0. (start of a new occasion) Do not use when starting the first occasion. You can set the TIME to 0 or other convenient starting value for this occasion of the individual's data. 
+- EVID = 4, Reset and dose. Reset the compartment values immediately prior to the administration of a dose at the time of the record. Do not use when starting the first occasion. You can set the TIME to 0 or other convenient starting value for this occasion of the individual's data. Useful for crossover study. 
+
+| EVID | DV | AMT |
+|:-:|:--|:--|
+|0| Generally no nmissing | Must be missing| 
+|1| Must be missing       | Must be nonmissing|
+|2| Must be missing       | Must be missing|
+|3| Must be missing       | Must be missing|
+|4| Must be missing       | Must be nonmissing|
+
+**CMT**: Compartment. Specified for a dose or observation, not required if PREDPP models are used.
+
+
+# Examples
+## PK Only
+
+- Load and view the data
+```{r load PK dataset}
+PK <- read_csv("../data/PK_Data_Session3.csv")
+kable(PK) %>% kable_paper() %>% scroll_box(width = "100%", height = "300px")
+# str(PK)
+
+# convert appropriate columns to factor 
+PK <- PK %>% 
+  mutate(geno = factor(geno, levels = c("wild", "heterozygous", "homozygous")),
+         sex = factor(sex, levels = c("Male", "Female")),
+         ethnicity = factor(ethnicity, levels = c("Hispanic", "Non-Hispanic")))
+```
+
+- Prepare dataset in NONMEM format
+  - Each DV is its own record
+  - Dosing and DV are different records
+  - Columns needed: ID, TIME, DV, AMT, DATE?, MDV, EVID, CMT
+  - Many ways to do this. What do you think we should do?
+```{r}
+# Extract concentration
+PK_conc <- PK[,c(1, grep("PK", names(PK)))]
+
+# Convert wide concentration data to long format
+PK_conc <- PK_conc %>% 
+  pivot_longer(cols = starts_with("PK"),
+               names_to = "time",
+               names_prefix = "PK_",
+               values_to = "dv",
+               values_drop_na = F)
+
+# Add amt column to concentration data
+PK_conc$amt = NA
+
+# Remove concentration columns
+PK <- PK[,-grep("PK", names(PK))]
+
+# Join the concentration data with other data 
+PK_NONMEM <- full_join(PK, PK_conc, by = c("ID", "amt")) %>% 
+  arrange(ID) %>% 
+  select(ID, date, clocktime, time, amt, dv, everything())
+
+# Fill the initial time with 0
+PK_NONMEM <- PK_NONMEM %>% 
+  mutate(time = replace_na(time, 0))
+
+# Fill the missing value with the values of first row of each ID
+PK_NONMEM <- PK_NONMEM %>% 
+  group_by(ID) %>% 
+  fill(names(PK_NONMEM[-5]), .direction = "down") # don't fill amt
+
+# Add other helpful columns
+PK_NONMEM <- PK_NONMEM %>% 
+  mutate(mdv = if_else(is.na(dv), 1, 0),
+         evid = if_else(is.na(amt), 0, 1),
+         cmt = if_else(is.na(dv), 1, 2)) %>% # cmt = 1, absorption cmt; 2, central cmt
+  select(ID, date, clocktime, time, amt, dv, mdv, evid, cmt, everything())
+
+# Convert factor to numeric
+PK_NONMEM <- PK_NONMEM %>% 
+  mutate(geno = as.numeric(geno), # wild = 1, hetero = 2, homo = 3
+         sex = as.numeric(sex == "Female"), # male = 0, female = 1
+         ethnicity = as.numeric(ethnicity == "Non-Hispanic")) # hispanic = 0, non-hispanic =1
+
+# Make Column names all capital
+names(PK_NONMEM) <- toupper(names(PK_NONMEM))
+
+kable(PK_NONMEM) %>% kable_paper() %>% scroll_box(width = "100%", height = "300px")
+
+# Save as csv file and fill NA with "." 
+write_csv(PK_NONMEM, "../data/PK_Data_NONMEM_Session3.csv", na = ".")
+```
+
+
+## PK with LOQ
+- Limit of quantification (LOQ): 0.05
+  - You can use log(concentration) in the dataset or define LOG(concentration) in control stream
+```{r}
+PK_LOQ_NONMEM <- PK_NONMEM %>% 
+  rename(CONC = DV) %>% 
+  mutate(DV = log(CONC),
+         LOQ = log(0.05)) %>% 
+  mutate(TYPE = if_else(DV <= LOQ, 2, 1)) %>% 
+  mutate(TYPE = replace_na(TYPE, 1))
+
+# Save as csv file and fill NA with "." 
+write_csv(PK_LOQ_NONMEM, "../data/PK_LOQ_Data_NONMEM_Session3.csv", na = ".")
+```
+
+## PKPD
+
+```{r load PKPD dataset}
+PKPD <- read_csv("../data/PKPD_Data_Session3.csv")
+kable(PKPD) %>% kable_paper() %>% scroll_box(width = "100%", height = "300px")
+```
+
+- Similar approach to PK only data
+
+```{r}
+# Extract PK and PD measurements
+PKPD_conc <- PKPD[,c(1, grep("PK_|PD_", names(PKPD)))]
+
+# Convert wide concentration data to long format
+PKPD_conc <- PKPD_conc %>% 
+  pivot_longer(cols = starts_with(c("PK", "PD")),
+               names_to = "time",
+               #names_prefix = "PK_|PD_", 
+               values_to = "dv",
+               values_drop_na = F)
+
+# Add type column
+PKPD_conc <- PKPD_conc %>% 
+  mutate(type = if_else(grepl("PK", time), 1, 2)) %>% # type = 1, PK; =2, PD
+  mutate(time = gsub("PK_|PD_", "", time)) # remove PK_ and PD_
+
+# Add amt column to concentration data
+PKPD_conc$amt = NA
+
+# Remove concentration and PD columns
+PKPD <- PKPD[,-grep("PK|PD", names(PKPD))]
+
+# Join the concentration data with other data 
+PKPD_NONMEM <- full_join(PKPD, PKPD_conc, by = c("ID", "amt")) %>% 
+  mutate(time = replace_na(time, 0),
+         type = replace_na(type, 0)) %>% 
+  arrange(ID, time) %>% 
+  select(ID, date, clocktime, time, amt, dv, everything())
+
+# Fill the missing value with the values of first row of each ID
+PKPD_NONMEM <- PKPD_NONMEM %>% 
+  group_by(ID) %>% 
+  fill(names(PKPD_NONMEM[c(-5,-6)]), .direction = "updown")  # don't fill amt and dv
+
+# Add other helpful columns
+PKPD_NONMEM <- PKPD_NONMEM %>% 
+  mutate(mdv = if_else(is.na(dv), 1, 0),
+         evid = if_else(is.na(amt), 0, 1),
+         cmt = case_when(type == 0 ~ 1, 
+                         type == 1 ~ 2, 
+                         type == 2 ~ 3)) %>% # cmt = 1, absorption cmt; 2, central cmt; 3, PD cmt
+  select(ID, date, clocktime, time, amt, dv, mdv, evid, cmt, type, everything())
+
+# Convert factor to numeric
+PKPD_NONMEM <- PKPD_NONMEM %>% 
+  mutate(geno = as.numeric(geno), # wild = 1, hetero = 2, homo = 3
+         sex = as.numeric(sex == "Female"), # male = 0, female = 1
+         ethnicity = as.numeric(ethnicity == "Non-Hispanic")) # hispanic = 0, non-hispanic =1
+
+# Make Column names all capital
+names(PKPD_NONMEM) <- toupper(names(PKPD_NONMEM))
+
+kable(PKPD_NONMEM) %>% kable_paper() %>% scroll_box(width = "100%", height = "300px")
+
+# Save as csv file and fill NA with "." 
+write_csv(PKPD_NONMEM, "../data/PKPD_Data_NONMEM_Session3.csv", na = ".")
+```
+
+## PK with Urine Sample
+
+
+
+
+## R packages
+- The `puzzle` Package may be helpful. See the publication in [R journal](https://journal.r-project.org/archive/2021/RJ-2021-006/RJ-2021-006.pdf) for more detail.
+
+# Reference
+1. Bauer, R.J. (2019), NONMEM Tutorial Part I: Description of Commands and Options, With Simple Examples of Population Analysis. CPT Pharmacometrics Syst. Pharmacol., 8: 525-537. https://doi.org/10.1002/psp4.12404
+2. Bauer, R.J. (2019), NONMEM Tutorial Part II: Estimation Methods and Advanced Examples. CPT Pharmacometrics Syst. Pharmacol., 8: 538-556. https://doi.org/10.1002/psp4.12422
+3. Beal, S.L., Sheiner, L.B., Boeckmann, A.J. & Bauer, R.J. (Eds). NONMEM 7.4 users guides V <https://nonmem.iconplc.com/nonmem743/guides> (1989–2018).

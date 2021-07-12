@@ -355,7 +355,7 @@ df <-
 df <- df %>% group_by(ID) %>% mutate(dose = max(unique(amt))) #create dose column in convenience for plotting
 df <- df %>% mutate(bmi = wt/((ht/100)^2)) #create bmi column (kg/m^2)
 
-#keep 2 decimal places for all the continous cov
+#keep 2 decimal places for all the continuous cov
 df <- 
   df %>% 
   mutate(age = round(age, digits=2), 
@@ -543,6 +543,6 @@ df_output <-
 write.csv(df_output, "r4pmx_dataset_simulation.csv", row.names = FALSE) #write.csv(data name in R, "output name.csv")
                                                                  #`row.names = FALSE` removes the line number column
 
-#Can also use `write.table` here, but need to specfiy separations (eg. `sep=","`)
+#Can also use `write.table` here, but need to specify separations (eg. `sep=","`)
 ```
 
