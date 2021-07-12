@@ -1,5 +1,5 @@
 ---
-title: "Session 3 - NONMEM Dataset Format"
+title: "Session 3 - Format NONMEM Dataset"
 author: 
 - "Ya-Feng Wen"
 date: "`r Sys.Date()`"
@@ -8,9 +8,6 @@ output:
     toc: true
     toc_float: true
     code_folding: hide
-  pdf_document:
-    toc: true
-    toc_depth: 1
 ---
 ```{r global_options, include=FALSE}
 knitr::opts_chunk$set(warning=FALSE, message=FALSE, results=TRUE,
@@ -28,8 +25,8 @@ library(knitr); library(kableExtra)
 # Objectives
 * NONMEM Data file Requirement
 * Construct NONMEM Data file
-  + PK 
-  + PKPD
+  + PK and PK with LOQ
+  + PKPD (parent-metabolites can follow the same approach)
   + PK with urine samples
   
 # NONMEM Data File Rules and Best Practices
@@ -196,6 +193,8 @@ PK_LOQ_NONMEM <- PK_NONMEM %>%
   mutate(TYPE = if_else(DV <= LOQ, 2, 1)) %>% 
   mutate(TYPE = replace_na(TYPE, 1))
 
+kable(PK_LOQ_NONMEM) %>% kable_paper() %>% scroll_box(width = "100%", height = "300px")
+
 # Save as csv file and fill NA with "." 
 write_csv(PK_LOQ_NONMEM, "../data/PK_LOQ_Data_NONMEM_Session3.csv", na = ".")
 ```
@@ -205,6 +204,12 @@ write_csv(PK_LOQ_NONMEM, "../data/PK_LOQ_Data_NONMEM_Session3.csv", na = ".")
 ```{r load PKPD dataset}
 PKPD <- read_csv("../data/PKPD_Data_Session3.csv")
 kable(PKPD) %>% kable_paper() %>% scroll_box(width = "100%", height = "300px")
+
+# convert appropriate columns to factor 
+PKPD <- PKPD %>% 
+  mutate(geno = factor(geno, levels = c("wild", "heterozygous", "homozygous")),
+         sex = factor(sex, levels = c("Male", "Female")),
+         ethnicity = factor(ethnicity, levels = c("Hispanic", "Non-Hispanic")))
 ```
 
 - Similar approach to PK only data
@@ -219,12 +224,13 @@ PKPD_conc <- PKPD_conc %>%
                names_to = "time",
                #names_prefix = "PK_|PD_", 
                values_to = "dv",
-               values_drop_na = F)
+               values_drop_na = F) 
 
 # Add type column
 PKPD_conc <- PKPD_conc %>% 
   mutate(type = if_else(grepl("PK", time), 1, 2)) %>% # type = 1, PK; =2, PD
-  mutate(time = gsub("PK_|PD_", "", time)) # remove PK_ and PD_
+  mutate(time = gsub("PK_|PD_", "", time)) %>%  # remove PK_ and PD_
+  mutate(time = as.numeric(time)) # convert time to numeric
 
 # Add amt column to concentration data
 PKPD_conc$amt = NA
@@ -270,7 +276,107 @@ write_csv(PKPD_NONMEM, "../data/PKPD_Data_NONMEM_Session3.csv", na = ".")
 
 ## PK with Urine Sample
 
+```{r load PKPDUrine dataset}
+PKPDUrine <- read_csv("../data/PKPDUrine_Data_Session3.csv")
+kable(PKPDUrine) %>% kable_paper() %>% scroll_box(width = "100%", height = "300px")
+```
 
+- Urine is collected in an interval of time (0~8hrs, 8~24hrs, etc.)
+- If the clearance pathway is completely through renal and the drug is not metabolized, output compartment (CMT=0) may be used for urinary drug collection
+- If there are multiple clearance pathways, a separate urine compartment need to be used. 
+  - Model needs to accumulate urinary drug amount then empty at the end collection period
+  - This can be achieved by turning on/off of the CMT and combined with EVID=2. For example: 
+      - CMT = 3  (turn on compartment 3)
+      - CMT = -4 (resent compartment 3 to zero)
+
+```{r}
+# Extract PK, urine and PD measurements
+PKPDUrine_conc <- PKPDUrine[,c(1, grep("pk_|urine_|pd_", names(PKPDUrine)))]
+
+# Convert wide concentration data to long format
+PKPDUrine_conc <- PKPDUrine_conc %>% 
+  pivot_longer(cols = starts_with(c("pk", "urine","pd")),
+               names_to = "time",
+               #names_prefix = "PK_|PD_", 
+               values_to = "dv",
+               values_drop_na = F)
+
+# Add type column
+PKPDUrine_conc <- PKPDUrine_conc %>% 
+  mutate(type = case_when(grepl("pk", time)~ 1, 
+                          grepl("urine", time)~ 2,
+                          grepl("pd", time)~ 3,)) %>% # type = 1, PK; =2, Urine; =3, PD
+  mutate(time = gsub("pk_|urine_|pd_", "", time)) # remove pk_, urine_, and pd_
+
+# Add amt column to concentration data
+PKPDUrine_conc$amt = NA
+
+# Remove concentration and PD columns
+PKPDUrine <- PKPDUrine[,-grep("pk_|urine_|pd_", names(PKPDUrine))]
+
+# Join the concentration data with other data 
+PKPDUrine_NONMEM <- full_join(PKPDUrine, PKPDUrine_conc, by = c("ID", "amt")) %>% 
+  mutate(time = replace_na(time, 0),
+         type = replace_na(type, 0)) %>% 
+  mutate(time = as.numeric(time)) %>% 
+  arrange(ID, time) %>% 
+  select(ID, time, amt, dv, everything())
+
+# Fill the missing value with the values of first row of each ID
+PKPDUrine_NONMEM <- PKPDUrine_NONMEM %>% 
+  group_by(ID) %>% 
+  fill(names(PKPDUrine_NONMEM[c(-3,-4)]), .direction = "updown")  # don't fill amt and dv
+
+# Add other helpful columns
+PKPDUrine_NONMEM <- PKPDUrine_NONMEM %>% 
+  mutate(mdv = if_else(is.na(dv), 1, 0),
+         evid = if_else(is.na(amt), 0, 1),
+         # cmt = 1, absorption cmt; 2, central cmt; 3, urine cmt; 4 pd cmt
+         cmt = case_when(type == 0 ~ 1, 
+                         type == 1 ~ 2, 
+                         type == 2 ~ 3,
+                         type == 3 ~ 4)) %>% 
+  select(ID, time, amt, dv, mdv, evid, cmt, type, everything())
+
+# Urine compartment
+# open urine compartment at the time of dosing record and after each urine collection if more urine is collected (CMT=3, EVID=2) 
+# close urine compartment after each urine collection (CMT=-3, EVID=2)
+
+urineOpenDosing <- PKPDUrine_NONMEM %>% 
+  group_by(ID) %>% 
+  # copy row if AMT if not NA and change EVID=2, CMT=3, AMT=NA, DV=NA, TYPE=2
+  filter(!is.na(amt)) %>% 
+  mutate(evid = 2, cmt = 3, amt = NA, dv = NA, type = 2) 
+
+urineOpen <- PKPDUrine_NONMEM %>% 
+  group_by(ID) %>% 
+  # copy row if CMT == 3 and change EVID=2, CMT=3, DV = NA
+  filter(cmt == 3) %>% 
+  mutate(evid = 2, cmt = 3, dv = NA) %>%  
+  # remove the last row per individual since no more urine is collected
+  filter(row_number()!=n()) 
+
+urineClose <- PKPDUrine_NONMEM %>% 
+  group_by(ID) %>% 
+  # copy row if CMT == 3 and change EVID=2, CMT=-3, DV = NA
+  filter(cmt == 3) %>% 
+  mutate(evid = 2, cmt = -3, dv = NA) 
+
+# combine datasets 
+PKPDUrine_NONMEM_Complete <- PKPDUrine_NONMEM %>% 
+  bind_rows(., urineOpenDosing) %>% 
+  bind_rows(., urineOpen) %>% 
+  bind_rows(., urineClose) %>% 
+  arrange(ID, time, amt, dv, cmt)
+
+# Make Column names all capital
+names(PKPDUrine_NONMEM_Complete) <- toupper(names(PKPDUrine_NONMEM_Complete))
+
+kable(PKPDUrine_NONMEM_Complete) %>% kable_paper() %>% scroll_box(width = "100%", height = "300px")
+
+# Save as csv file and fill NA with "." 
+write_csv(PKPDUrine_NONMEM_Complete, "../data/PKPDUrine_Data_NONMEM_Session3.csv", na = ".")
+```
 
 
 ## R packages
