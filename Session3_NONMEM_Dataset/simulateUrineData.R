@@ -1,5 +1,5 @@
 library(mrgsolve)
-library(truncnorm) #functionality related to truncated nomral distribution
+library(truncnorm) #functionality related to truncated normal distribution
 library(tidyverse)
 theme_set(theme_bw())
 

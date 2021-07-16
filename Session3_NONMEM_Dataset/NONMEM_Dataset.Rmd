@@ -35,7 +35,7 @@ library(knitr); library(kableExtra)
 - Required data items (for all population models): **ID**, **DV**
 - Required data items (for PREDPP ADVAN models): **ID**, **DV**, **TIME**, **AMT**
 - Additional data items: **DATE**, **RATE**, **MDV**, **EVID**, **CMT**, **SS**, **ADDL**, **II**
-- Column name: best to have without spaces
+- Column name: without spaces, not start with numeric
 - List all records from one individual sequentially
 - Have a placeholder for every record. Use 0 or "." for null. ("." is treated as 0)
 - Use a separate record for each event (dose, observation, etc.).
@@ -48,7 +48,7 @@ library(knitr); library(kableExtra)
 **TIME**: 
 
 - Ascending order for a given ID until the end of the subject's records or at a record with EVID = 3 or EVID = 4 that specifies a new occasion. 
-- Must be non-missing and non-negative for all records. 
+- Must be non-missing and non-negative for all records. (after NM7.4, you can have negative time) 
 - Formatted as military clock time (17:30) or decimal valued time (17.5), but in the same format. Decimal value time is the elapsed time since some initial value and the first record does not need to be 0. 
 
 **DATE**: 
@@ -93,15 +93,15 @@ library(knitr); library(kableExtra)
 - EVID = 1, Dose. The AMT, RATE, ADDL, II of the record will be used for the drug input information. 
 - EVID = 2, Other. Trigger a special event. IF(EVID==2) AUC=A(5)
 - EVID = 3, Reset. Reset the compartment values in the model to 0. (start of a new occasion) Do not use when starting the first occasion. You can set the TIME to 0 or other convenient starting value for this occasion of the individual's data. 
-- EVID = 4, Reset and dose. Reset the compartment values immediately prior to the administration of a dose at the time of the record. Do not use when starting the first occasion. You can set the TIME to 0 or other convenient starting value for this occasion of the individual's data. Useful for crossover study. 
+- EVID = 4, Reset and dose. Reset the compartment values immediately prior to the administration of a dose at the time of the record. (Do not use when starting the first occasion.--> you can actually do this!) You can set the TIME to 0 or other convenient starting value for this occasion of the individual's data. Useful for crossover study. 
 
-| EVID | DV | AMT |
-|:-:|:--|:--|
-|0| Generally no nmissing | Must be missing| 
-|1| Must be missing       | Must be nonmissing|
-|2| Must be missing       | Must be missing|
-|3| Must be missing       | Must be missing|
-|4| Must be missing       | Must be nonmissing|
+| EVID | DV | MDV | AMT |
+|:-:|:--|:-:|:--|
+|0| Generally no nmissing | 0 |Must be missing| 
+|1| Must be missing       | 1 |Must be nonmissing|
+|2| Must be missing       | 1 |Must be missing|
+|3| Must be missing       | 1 |Must be missing|
+|4| Must be missing       | 1 |Must be nonmissing|
 
 **CMT**: Compartment. Specified for a dose or observation, not required if PREDPP models are used.
 
@@ -163,7 +163,7 @@ PK_NONMEM <- PK_NONMEM %>%
 PK_NONMEM <- PK_NONMEM %>% 
   mutate(mdv = if_else(is.na(dv), 1, 0),
          evid = if_else(is.na(amt), 0, 1),
-         cmt = if_else(is.na(dv), 1, 2)) %>% # cmt = 1, absorption cmt; 2, central cmt
+         cmt = if_else(!is.na(amt)&is.na(dv), 1, 2)) %>% # cmt = 1, absorption cmt; 2, central cmt
   select(ID, date, clocktime, time, amt, dv, mdv, evid, cmt, everything())
 
 # Convert factor to numeric
@@ -287,7 +287,7 @@ kable(PKPDUrine) %>% kable_paper() %>% scroll_box(width = "100%", height = "300p
   - Model needs to accumulate urinary drug amount then empty at the end collection period
   - This can be achieved by turning on/off of the CMT and combined with EVID=2. For example: 
       - CMT = 3  (turn on compartment 3)
-      - CMT = -4 (resent compartment 3 to zero)
+      - CMT = -3 (turn off and resent compartment 3 to zero)
 
 ```{r}
 # Extract PK, urine and PD measurements
@@ -350,17 +350,17 @@ urineOpenDosing <- PKPDUrine_NONMEM %>%
 
 urineOpen <- PKPDUrine_NONMEM %>% 
   group_by(ID) %>% 
-  # copy row if CMT == 3 and change EVID=2, CMT=3, DV = NA
+  # copy row if CMT == 3 and change EVID=2, CMT=3, DV = NA, MDV = 1
   filter(cmt == 3) %>% 
-  mutate(evid = 2, cmt = 3, dv = NA) %>%  
+  mutate(evid = 2, cmt = 3, dv = NA, mdv = 1) %>%  
   # remove the last row per individual since no more urine is collected
   filter(row_number()!=n()) 
 
 urineClose <- PKPDUrine_NONMEM %>% 
   group_by(ID) %>% 
-  # copy row if CMT == 3 and change EVID=2, CMT=-3, DV = NA
+  # copy row if CMT == 3 and change EVID=2, CMT=-3, DV = NA, MDV = 1
   filter(cmt == 3) %>% 
-  mutate(evid = 2, cmt = -3, dv = NA) 
+  mutate(evid = 2, cmt = -3, dv = NA, mdv =1) 
 
 # combine datasets 
 PKPDUrine_NONMEM_Complete <- PKPDUrine_NONMEM %>% 
