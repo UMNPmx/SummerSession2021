@@ -1,0 +1,24 @@
+$PROBLEM One-compartment model with absorption
+$INPUT
+$DATA
+
+$SUBR ADVAN2 TRANS2  
+
+$PK 
+
+
+$ERROR
+
+
+$EST MET=1 PRINT=10 INTER NOABORT 
+
+$THETA
+
+$OMEGA
+
+$SIGMA 
+
+
+$COVR
+
+$TAB 
