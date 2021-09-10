@@ -1,0 +1,204 @@
+---
+title: "Normalized Prediction Distribution Errors"
+author: "Mutaz M. Jaber"
+date: " `r format(Sys.time(), '%B %d, %Y')`"
+output:
+  html_document:
+    number_sections: true
+    md_extensions: +tex_math_single_backslash
+    mathjax: https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.0/es5/latest.js?tex-mml-chtml.js
+  pdf_document:
+    number_sections: true
+    md_extensions: -tex_math_single_backslash
+---
+
+
+Normalized prediction distribution errors (npde) is an evaluation metric used
+in nonlinear mixed-effect approach (NLME). This metric is a nonparametric
+version of population weighted residual calculation. 
+
+
+## General notation
+
+Let $i$ denote the $i^{th}$ individual and $j$ is the $j^{th}$ measurment point
+in an individual. $n_{tot}$ is the total observations in dataset.
+
+$$
+n_{tot} = \sum_{1}^i n_{i}
+$$
+
+Let $Y_i$ be the observation vector for subject i, and $f(.)$ is the PK model, then for the observation $y_{ij}$:
+
+$$
+y_{ij} = f(t_{ij}, \theta_i) + \epsilon_{ij} 
+$$
+
+Where $\theta_i$ is vector of individual PK parameters, that we assumed it is log-normally distributed
+
+$$
+\theta_i = h(\mu) e^{\eta_i}
+$$ 
+
+Where $\mu$ is the population value, and $\eta_i$ is the vector of random effects, and usually we assume that $\eta_i$ are normally distributed $\eta_i \sim \mathcal{N}(0, \omega^2)$ 
+
+> Reminder: 
+
+```{r, fig.align='center'}
+set.seed(1234)
+x <- rnorm(100,0, 2) 
+hist(x, freq=F, xlab=expression(eta), main=expression(eta[i] %~~% N(0, 2)))
+curve(dnorm(x, 0, 2),ylab='PDF',  add = TRUE)
+```
+
+## Predictive Distribution 
+
+Taking into consideration that population model $f$ and population parameters
+$\{\mu, diag(\Omega), \sigma\}$ are given and they define the null model
+($H_0$).  We can define the predictive distribution ($pd_i$) for the $i^{th}$ subject as:
+
+$$
+p_i = \int p(y|\theta_i)p(\theta_i)d\theta_i
+$$
+
+Where $p(y|\theta_i)$ is normally distributed with mean $f(t_{ij}, \theta_i)$ and variance of $\Sigma_i(\theta_i) = diag(\sigma^2h(t_{ij}, \theta_i)$. Since we almost deal with nonlinear systems, there is no analytical expression for $p_i(y)$. Thus, we approximate the distribution using discrete distribution using stochastic simulation MCMC. 
+
+$$
+p_i(y) = \frac{1}{K} \sum_{k=1}^K p(y|\theta_k) = \frac{1}{K} \sum_{k=1}^K \phi(y; f(t_{ij}, \theta_k), \Sigma_i(\theta_k))
+$$
+
+Where $\phi$ is the multivariate normal PDF with mean of $\mu$ and variance of $\Omega$ evaluated at population model value. Prediction distribution can compare the observed data with the theoritical distribution of model prediction based on MCMC simulation. 
+
+## Prediction Discrepancy 
+
+Prediction discrepancy is a method uses stochastic MCMC simulation to generate prediction distribution for each observation. If the model and population parameters are correct, its expected that prediction discrepancy follows a uniform distribution: $pd_i \sim U(0,1)$. 
+
+
+Let $F_{ij}$ be the prediction [distribution
+function](https://en.wikipedia.org/wiki/Cumulative_distribution_function) of
+the observation $y_{ij}$ for the $i^{th}$ under the estimated model $M$. We can
+calculate prediction discrepancy $pd_{ij}$ as the value of $F_{ij}$ at
+observation $y_{ij}$.    
+
+We can simulate $K$ datasets and let $Y^{sim(k)}_i$ denotes the vector of simulated
+observations for the $i^{th}$ subject in the $k^{th}$ dataset. $pd_i$ is computed as the percentile of $y_{ij}$ based on the theoritcal distribution of $y^{sim(k)}_{ij}$ 
+
+$$
+pd_{ij} = F_{ij}(y_{ij}) \approx \frac{1}{K} \sum \delta_{ijk}
+$$
+
+Where $\delta_{ijk}$ is an indicator function 
+
+$$
+\delta_{ijk} = \begin{cases} 1 & y_{ij}^{sim(k)} < y_{ij} \\ 0 & o.w. \end{cases} 
+$$
+
+However, as we mentioned the distribution of $pd$ is uniform but that the case of one observation per indiviudal without taken into consideration with-subject correlation of multiple observation. 
+
+To overcome this issue, a decorrelation step has been proposed
+
+
+$$
+pde_{ij} = F^*_{ij}(y^*_{ij}) \approx \frac{1}{K} \sum \delta^*_{ijk}
+$$
+ 
+## Computation of NPDE
+
+Applying the inverse normal distribution function to $pde_{ij}$ we can obtain normalized prediction distribution error ($npde_{ij}$):
+
+$$
+npde_{ij} = \phi^{-1}(pde_{ij})
+$$
+
+With that, if $H_0$ is true, them NPDE will follow a standard normal distribution $npde \sim \mathcal{N}(0, 1)$
+
+
+
+
+## NONMEM example
+
+Lets go back to PK hello world;IV-bolus one-compartment model with linear elimination. The implementation is simple in NONMEM, few parameters are added to `$TABLE` block for postprocessing
+
+```
+$TABLE ... NPDE NPD ESAMPLE=n
+```
+
+The full model: 
+
+```
+$PROB base 
+; Drug X; one compartment
+; estimat
+$INPUT ID TIME AMT DROP DV MDV NUM
+$DATA ../../../data/dat1.csv ignore=@   
+
+$SUBR ADVAN1 TRANS2
+$EST MET=1 PRINT=5 NOABORT INTER 
+
+$PK
+    TVCL = THETA(1) 
+    TVV  = THETA(2) 
+
+    CL  = TVCL * EXP(ETA(1))
+    V   = TVV * EXP(ETA(2)) 
+
+    S1 = V 
+
+$ERROR
+
+IPRED = F 
+Y  = IPRED * (1 + ERR(1)) 
+
+$THETA 
+(0, 5) ; CL 
+(0, 20) ; V
+
+$OMEGA 
+0.1
+0.1
+
+$SIGMA 0.01
+$COVR 
+$TAB ID NUM TIME AMT DV MDV IPRED PRED CWRES NPDE NPD ESAMPLE=10000 NOPRINT NOAPPEND ONEHEADER FILE=r2.tab 
+```
+
+Where `ESAMPLE` is the $K$ simulated datasets using MCMC. The default value is 300. 
+
+
+We can plot the data for correlated NPDE and decorrelated one
+
+```{r}
+dat <- read.table('src/r1.tab', skip=1, header=TRUE)
+dat <- dat[dat$CWRES!=0, ]
+with(dat, plot(TIME, NPDE)) 
+abline(h=0)
+```
+
+
+Now with population prediction 
+
+```{r}
+with(dat, plot(PRED, NPDE))
+abline(h=0)
+```
+
+Same with correlated normalized prediction 
+
+```{r}
+with(dat, plot(TIME, NPD))
+abline(h=0)
+```
+
+And again with population prediction
+
+```{r}
+with(dat, plot(PRED, NPD))
+abline(h=0)
+```
+
+
+References:
+
+- Computing normalised prediction distribution errors
+to evaluate nonlinear mixed-effect models:
+The npde add-on package for R [https://pubmed.ncbi.nlm.nih.gov/18215437/]
+- NONMEM VIII User guide 
