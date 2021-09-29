@@ -1,0 +1,76 @@
+PsN version: 5.2.6
+Run started: 2021-08-13 at 15:39:44
+Run finished: 2021-08-13 at 15:45:11
+version_and_option_info.txt is overwitten if the run is restarted later using option -directory.
+The original file from the first call is saved as original_version_and_option_info.txt.
+
+Command:
+/usr/local/bin/execute -clean=3 run1.mod
+
+NONMEM:
+/Users/shencheng/nm75
+
+Actual values optional execute options (undefined values not listed):
+-copy_data=1
+-prepend_options_to_lst=0
+-tail_output=0
+
+Actual values optional PsN (common) options (undefined values not listed):
+-abort_on_fail=0
+-accepted_ofv_difference=0.5
+-add_retries=0
+-always_datafile_in_nmrun=0
+-check_nmtran=0
+-clean=3
+-compress=0
+-condition_number_limit=1000
+-correlation_limit=0.85
+-crash_restarts=5
+-debug_rmd=0
+-degree=0.1
+-directory=/Users/shencheng/Documents/GitHub/SummerSession2021/Session5_Shen/modelfit_dir1/
+-display_iterations=1
+-handle_crashes=1
+-handle_msfo=0
+-html=0
+-large_omega_cv_limit=0.8
+-large_sigma_cv_limit=0.8
+-large_theta_cv_limit=0.5
+-last_est_complete=0
+-lsf_sleep=3
+-min_retries=0
+-missing_data_token=-99
+-model_subdir=0
+-near_bound_sign_digits=2
+-near_zero_boundary_limit=0.01
+-nice=19
+-nm_output=ext,cov,cor,coi,phi,phm,cnv,smt,rmt,npd,npe,npi,npl,ets
+-nm_version=default
+-nmfe=1
+-nmqual=0
+-nodes=0
+-pdf=1
+-picky=0
+-prepend_model_file_name=0
+-quick_summarize=0
+-retries=0
+-rmarkdown=1
+-rplots=0
+-run_on_lsf=0
+-run_on_sge=0
+-run_on_slurm=0
+-run_on_torque=0
+-run_on_ud=0
+-run_on_zink=0
+-seed=157017
+-send_email=0
+-shrinkage=0
+-sign_digits_off_diagonals=2
+-significant_digits_accept=0
+-so=0
+-template_directory_rplots=/usr/local/Cellar/perl/5.34.0/lib/perl5/site_perl/5.34.0/PsN_5_2_6/R-scripts
+-template_file_rplots=execute_default.Rmd
+-threads=5
+-tweak_inits=1
+-verbose=0
+-zip=0
